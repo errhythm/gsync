@@ -1,0 +1,42 @@
+{
+  "name": "@rhythm/gsync",
+  "version": "1.6.1",
+  "description": "Multi-repo Git & GitLab workflow CLI — switch branches, manage epics & issues, create MRs, all from the terminal",
+  "type": "module",
+  "bin": {
+    "gsync": "bin/gsync.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "git",
+    "gitlab",
+    "branch",
+    "multi-repo",
+    "polyrepo",
+    "monorepo",
+    "merge-request",
+    "cli",
+    "developer-tools",
+    "gitlab-cli"
+  ],
+  "author": "rhythm",
+  "license": "MIT",
+  "main": "src/main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^8.3.0",
+    "boxen": "^8.0.1",
+    "chalk": "^5.6.2",
+    "enquirer": "^2.4.1",
+    "figlet": "^1.10.0",
+    "listr2": "^10.2.1"
+  }
+}
