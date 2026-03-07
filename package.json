@@ -1,6 +1,6 @@
 {
   "name": "@rhythm/gsync",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Multi-repo Git & GitLab workflow CLI — switch branches, manage epics & issues, create MRs, all from the terminal",
   "type": "module",
   "bin": {

@@ -59,6 +59,7 @@ function parseArgs(rawArgs) {
     version: flags.has("--version") || flags.has("-v"),
     help: flags.has("--help") || flags.has("-h"),
     settings: flags.has("--settings"),
+    debug: flags.has("--debug"),
     depth: parseInt(options.depth ?? String(DEFAULT_DEPTH), 10) || DEFAULT_DEPTH,
     exclude: options.exclude ?? null,
     filter: options.filter ?? null,
@@ -72,6 +73,7 @@ export async function main() {
   process.on("SIGTERM", () => { console.log("\n\n" + p.muted("  Terminated.") + "\n"); process.exit(0); });
 
   const opts = parseArgs(process.argv.slice(2));
+  if (opts.debug) process.env.GSYNC_DEBUG = "1";  // set before any module uses it
   const config = loadConfig();
 
   if (opts.version) {
@@ -178,7 +180,7 @@ export async function main() {
     );
 
     // Mode selector — loop so "go back" from sub-commands returns here
-    while (true) {
+    modeLoop: while (true) {
       const mode = await select({
         message: p.white("What do you want to do?"),
         choices: [
@@ -196,52 +198,56 @@ export async function main() {
 
       console.log();
 
-      if (mode === "switch") break;
-
       if (mode === "portal") {
         const result = await cmdPortal(repos);
         if (result !== "__back__") return result;
         continue;
       }
-    }
 
-    const branchSuggestions = getSwitchBranchSuggestions(config);
+      // ── Switch branch flow (with back support) ─────────────────────────────
+      const branchSuggestions = getSwitchBranchSuggestions(config);
 
-    if (branchSuggestions.length > 0) {
-      const branchChoice = await select({
-        message: p.white("Suggested branch:"),
-        choices: [
-          ...branchSuggestions.map((item) => ({
-            value: item.value,
-            name: colorBranch(item.value),
-            description: p.muted(item.template),
-          })),
-          {
-            value: "__custom__",
-            name: p.white("Custom branch..."),
-            description: p.muted("type any branch name or partial"),
-          },
-        ],
-        theme: THEME,
-      });
+      if (branchSuggestions.length > 0) {
+        const branchChoice = await select({
+          message: p.white("Suggested branch:"),
+          choices: [
+            { value: "__back__", name: p.yellow("← Go back"), description: p.muted("return to main menu") },
+            ...branchSuggestions.map((item) => ({
+              value: item.value,
+              name: colorBranch(item.value),
+              description: p.muted(item.template),
+            })),
+            {
+              value: "__custom__",
+              name: p.white("Custom branch..."),
+              description: p.muted("type any branch name or partial"),
+            },
+          ],
+          theme: THEME,
+        });
 
-      console.log();
+        console.log();
 
-      if (branchChoice === "__custom__") {
+        if (branchChoice === "__back__") continue modeLoop;
+
+        if (branchChoice === "__custom__") {
+          targetBranch = await input({
+            message: p.white("Branch name") + p.muted(" (or partial):"),
+            theme: THEME,
+            validate: (v) => v.trim() !== "" || "Branch name cannot be empty",
+          });
+        } else {
+          targetBranch = branchChoice;
+        }
+      } else {
         targetBranch = await input({
           message: p.white("Branch name") + p.muted(" (or partial):"),
           theme: THEME,
           validate: (v) => v.trim() !== "" || "Branch name cannot be empty",
         });
-      } else {
-        targetBranch = branchChoice;
       }
-    } else {
-      targetBranch = await input({
-        message: p.white("Branch name") + p.muted(" (or partial):"),
-        theme: THEME,
-        validate: (v) => v.trim() !== "" || "Branch name cannot be empty",
-      });
+
+      break modeLoop; // branch was chosen — proceed to confirm prompts
     }
 
     const switchDefaults = config.switch?.lastOptions ?? {};
@@ -274,6 +280,7 @@ export async function main() {
 
     console.log();
   }
+
 
   return await cmdSwitch(repos, {
     targetBranch,

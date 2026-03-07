@@ -3,9 +3,11 @@ import { execSync } from "child_process";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import chalk from "chalk";
+import { Listr } from "listr2";
 
 const execFileAsync = promisify(execFile);
 import boxen from "boxen";
+import enquirer from "enquirer";
 import { input, confirm, select, search } from "@inquirer/prompts";
 
 import { getCurrentBranch } from "../git/core.js";
@@ -33,7 +35,7 @@ async function fetchAssignedEpics(groupPath, username, epicLabelFilter = null) {
     group(fullPath: "${groupPath}") {
       workItems(first: 100, types: [EPIC], assigneeUsernames: ["${username}"]${labelArg}, state: opened) {
         nodes {
-          iid title webUrl
+          id iid title webUrl
           widgets {
             type
             ... on WorkItemWidgetLabels {
@@ -51,6 +53,7 @@ async function fetchAssignedEpics(groupPath, username, epicLabelFilter = null) {
 
   return nodes.map((e) => ({
     iid: e.iid,
+    id: e.id,    // gid://gitlab/Epic/12345 — needed for issue creation via REST
     title: e.title,
     web_url: e.webUrl,
     labels: e.widgets?.find((w) => w.type === "LABELS")?.labels?.nodes?.map((l) => l.title) ?? [],
@@ -176,7 +179,7 @@ async function fetchIssueBranches(projectPath, issueIid) {
 }
 
 // Interactive issue detail view — shows branches and lets the user set a primary branch
-async function cmdIssueView(issue) {
+async function cmdIssueView(issue, glabRepos = [], portalConfig = {}) {
   const ref = issue.references?.full ?? "";
   const [projectPath, localIid] = ref.split("#");
   const projectName = (projectPath ?? "").split("/").pop() ?? "";
@@ -239,6 +242,11 @@ async function cmdIssueView(issue) {
         name: p.cyan("⎇  Set primary branch"),
         description: currentPrimary ? p.muted("current: ") + colorBranch(currentPrimary) : p.muted("none set"),
       }] : []),
+      ...(currentPrimary ? [{
+        value: "mr",
+        name: p.purple("⊞  Create merge request"),
+        description: p.muted("MR from ") + colorBranch(currentPrimary) + p.muted(" → default base branch"),
+      }] : []),
       {
         value: "open",
         name: p.teal("⊕  View in GitLab"),
@@ -256,17 +264,20 @@ async function cmdIssueView(issue) {
   }
   if (issueAction === "back") return;
 
+  // Create MR from primary branch
+  if (issueAction === "mr") {
+    await cmdIssueMr(issue, glabRepos, portalConfig);
+    return;
+  }
+
   // Set primary branch
   const primaryChoice = await search({
     message: p.white("Set primary branch:"),
     source: (val) => {
       const term = (val ?? "").toLowerCase().trim();
       return [
-        {
-          value: null,
-          name: p.muted("— none —"),
-          description: p.muted("clear primary branch"),
-        },
+        { value: "__cancel__", name: p.yellow("← Cancel"), description: p.muted("return to action menu without changing") },
+        { value: null, name: p.muted("— none —"), description: p.muted("clear primary branch") },
         ...branches
           .filter((b) => !term || b.name.toLowerCase().includes(term))
           .map((b) => ({
@@ -280,6 +291,8 @@ async function cmdIssueView(issue) {
   });
   console.log();
 
+  if (primaryChoice === "__cancel__") return;
+
   // Persist
   const fresh = loadConfig();
   const updated = { ...(fresh.portal?.primaryBranches ?? {}), [configKey]: primaryChoice };
@@ -291,6 +304,287 @@ async function cmdIssueView(issue) {
   } else {
     console.log("  " + p.muted("Primary branch cleared.\n"));
   }
+}
+
+// ── Issue MR creation ────────────────────────────────────────────────────────
+// Creates an MR via the GitLab REST API directly (avoids glab mr create CLI
+// argument parsing issues with special characters in titles).
+async function createMrViaApi(projectPath, { sourceBranch, targetBranch, title, description, labels, isDraft }) {
+  const enc = encodeURIComponent(projectPath);
+  const fields = {
+    source_branch: sourceBranch,
+    target_branch: targetBranch,
+    title: title.trim(),
+  };
+  if (description?.trim()) fields.description = description.trim();
+  if (labels?.trim()) fields.labels = labels.trim();
+  if (isDraft) fields.draft = true;
+  return glabApi(`projects/${enc}/merge_requests`, { method: "POST", fields });
+}
+
+// Single-issue MR — called from cmdIssueView.
+async function cmdIssueMr(issue, glabRepos, portalConfig) {
+  const ref = issue.references?.full ?? "";
+  const [projectPath, localIid] = ref.split("#");
+  const configKey = issueConfigKey(issue);
+  const primary = (loadConfig().portal?.primaryBranches ?? {})[configKey] ?? null;
+
+  if (!primary) {
+    console.log("  " + p.yellow("No primary branch set.") + p.muted("  Use \"Set primary branch\" first.\n"));
+    return;
+  }
+  const localRepo = findLocalRepo(glabRepos, projectPath);
+  if (!localRepo) {
+    console.log("  " + p.yellow("No local repo found for this issue.") + p.muted("  Is it within the current search scope?\n"));
+    return;
+  }
+
+  const targetBranch = await input({
+    message: p.white("Target branch") + p.muted(" (merge into):"),
+    default: portalConfig.defaultBaseBranch ?? "develop",
+    theme: THEME,
+    validate: (v) => v.trim() !== "" || "Required",
+  });
+  const title = await input({
+    message: p.white("Title:"),
+    default: issue.title,
+    theme: THEME,
+    validate: (v) => v.trim() !== "" || "Required",
+  });
+  const description = await input({ message: p.white("Description:"), default: "", theme: THEME });
+  const labels = await input({
+    message: p.white("Labels") + p.muted(" (optional):"),
+    default: portalConfig.defaultLabels ?? "",
+    theme: { ...THEME, style: { ...THEME.style, answer: (s) => p.purple(s) } },
+  });
+  const isDraft = await confirm({ message: p.white("Mark as") + p.muted(" Draft?"), default: false, theme: THEME });
+  const pushFirst = await confirm({ message: p.white("Push branch") + p.muted(" first?"), default: true, theme: THEME });
+  console.log();
+
+  console.log(
+    boxen(
+      p.muted("  source   ") + colorBranch(primary) + p.muted(" → ") + colorBranch(targetBranch) + "\n" +
+      p.muted("  title    ") + chalk.bold(p.white(title)) + "\n" +
+      p.muted("  project  ") + p.white(localRepo.name) +
+      (labels?.trim() ? "\n" + p.muted("  labels   ") + p.purple(labels) : "") +
+      (isDraft ? "\n" + p.muted("  flags    ") + p.yellow("draft") : ""),
+      {
+        padding: { top: 1, bottom: 1, left: 2, right: 2 }, borderStyle: "round", borderColor: "#334155",
+        title: p.muted(" merge request preview "), titleAlignment: "right"
+      },
+    ),
+  );
+  console.log();
+
+  const ok = await confirm({ message: p.white("Create merge request?"), default: true, theme: THEME });
+  console.log();
+  if (!ok) return;
+
+  process.stdout.write("  " + p.muted("Creating MR…\r"));
+  try {
+    if (pushFirst) {
+      process.stdout.write("  " + p.muted(`Pushing ${primary}…\r`));
+      await execFileAsync("git", ["push", "-u", "origin", primary], { cwd: localRepo.repo }).catch(() => { });
+    }
+    const mr = await createMrViaApi(projectPath, { sourceBranch: primary, targetBranch, title, description, labels, isDraft });
+    process.stdout.write(" ".repeat(40) + "\r");
+    const url = mr.web_url ?? "";
+    console.log(
+      boxen(
+        chalk.bold(p.green("✔  Merge request created")) + (url ? "\n  " + p.cyan(url) : ""),
+        { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: "round", borderColor: "#4ade80" },
+      ),
+    );
+    console.log();
+    if (url) {
+      const openIt = await confirm({ message: p.white("Open in browser?"), default: false, theme: THEME });
+      console.log();
+      if (openIt) openUrl(url);
+    }
+  } catch (e) {
+    process.stdout.write(" ".repeat(40) + "\r");
+    const msg = (e.message ?? "").toLowerCase();
+    const isExisting = msg.includes("already exists") || msg.includes("open merge request");
+    console.log(
+      boxen(
+        isExisting
+          ? p.teal("◉  An MR for this branch already exists")
+          : chalk.bold(p.red("Failed to create MR")) + "\n\n" + p.muted((e.message ?? "").slice(0, 120)),
+        {
+          padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: "round",
+          borderColor: isExisting ? "#4ecdc4" : "#f87171"
+        },
+      ),
+    );
+    console.log();
+  }
+}
+
+// ── Epic bulk MR creation ─────────────────────────────────────────────────────
+// Creates MRs in parallel for all issues that have a primary branch + local repo.
+async function cmdEpicMr(epicIssues, glabRepos, portalConfig) {
+  const primaryBranches = loadConfig().portal?.primaryBranches ?? {};
+
+  const candidates = epicIssues.map((issue) => {
+    const ref = issue.references?.full ?? "";
+    const [projectPath, localIid] = ref.split("#");
+    const primary = primaryBranches[issueConfigKey(issue)] ?? null;
+    const localRepo = findLocalRepo(glabRepos, projectPath);
+    return { issue, localIid, projectPath, primary, localRepo };
+  });
+
+  const ready = candidates.filter((c) => c.primary && c.localRepo);
+  const skipped = candidates.filter((c) => !c.primary || !c.localRepo);
+
+  if (ready.length === 0) {
+    console.log("  " + p.muted("No issues ready. Set primary branches first.\n"));
+    return;
+  }
+
+  // Show skipped repos as info before the picker
+  if (skipped.length > 0) {
+    const maxSkip = Math.max(...skipped.map((c) => (c.localRepo?.name ?? c.projectPath.split("/").pop()).length), 4);
+    for (const c of skipped) {
+      const name = (c.localRepo?.name ?? c.projectPath.split("/").pop()).padEnd(maxSkip);
+      const reason = !c.primary ? "no primary set" : "no local repo";
+      console.log("  " + p.muted("○") + "  " + p.muted(name + "  " + reason));
+    }
+    console.log();
+  }
+
+  // Multi-select: all ready repos pre-selected, space to toggle, Esc to go back
+  const choices = ready.map((c) => ({
+    name: c.localRepo.name,
+    value: c.localRepo.name,
+    message: chalk.bold(p.white(c.localRepo.name)) + "  " + colorBranch(c.primary),
+    hint: "",
+    enabled: true,  // pre-select all
+  }));
+
+  const selectedNames = await enquirer.autocomplete({
+    name: "repos",
+    message: "Select repos to create MRs for:",
+    multiple: true,
+    initial: 0,
+    limit: 12,
+    choices,
+    symbols: { indicator: { on: "◉", off: "◯" } },
+    footer() { return p.muted("space to toggle · type to filter · enter to confirm · esc to go back"); },
+    suggest(input = "", allChoices = []) {
+      const term = (input ?? "").toLowerCase().trim();
+      const selected = allChoices.filter((c) => c.enabled);
+      const unselected = allChoices.filter((c) => !c.enabled);
+      const filtered = term ? unselected.filter((c) => c.value.toLowerCase().includes(term)) : unselected;
+      return [...selected, ...filtered];
+    },
+  }).catch(() => "__back__");
+
+  console.log();
+  if (selectedNames === "__back__" || !Array.isArray(selectedNames) || selectedNames.length === 0) {
+    if (selectedNames !== "__back__") console.log("  " + p.muted("Nothing selected.\n"));
+    return;
+  }
+
+  const selectedReady = selectedNames
+    .map((name) => ready.find((c) => c.localRepo.name === name))
+    .filter(Boolean);
+
+  // Shared options — prompt once for all
+  const { targetBranch } = await enquirer.prompt({
+    type: "input",
+    name: "targetBranch",
+    message: p.white("Target branch") + p.muted(" (for all):"),
+    initial: portalConfig.defaultBaseBranch ?? "develop",
+    validate: (v) => v.trim() !== "" || "Required",
+  });
+  const labels = await input({
+    message: p.white("Labels") + p.muted(" (optional, applied to all):"),
+    default: portalConfig.defaultLabels ?? "",
+    theme: { ...THEME, style: { ...THEME.style, answer: (s) => p.purple(s) } },
+  });
+  const isDraft = await confirm({ message: p.white("Mark all as") + p.muted(" Draft?"), default: false, theme: THEME });
+  const pushFirst = await confirm({ message: p.white("Push branches") + p.muted(" first?"), default: true, theme: THEME });
+  console.log();
+
+  const confirmed = await confirm({
+    message: p.white("Create ") + p.cyan(String(selectedReady.length)) + p.white(` MR${selectedReady.length !== 1 ? "s" : ""}?`),
+    default: true, theme: THEME,
+  });
+  console.log();
+  if (!confirmed) return;
+
+  // Parallel execution via Listr
+  const results = [];
+  const numWidth = String(selectedReady.length).length;
+
+
+  const listTasks = new Listr(
+    selectedReady.map(({ issue, localIid, localRepo, primary }, i) => {
+      const idx = p.muted(`[${String(i + 1).padStart(numWidth)}/${selectedReady.length}]`);
+      return {
+        title: idx + "  " + chalk.bold(p.white(localRepo.name)) +
+          "  " + colorBranch(primary) + p.muted(" → ") + colorBranch(targetBranch),
+        task: async (_, task) => {
+          try {
+            if (pushFirst) {
+              await execFileAsync("git", ["push", "-u", "origin", primary], { cwd: localRepo.repo }).catch(() => { });
+            }
+            const mr = await createMrViaApi(issue.references?.full?.split("#")[0] ?? "", {
+              sourceBranch: primary, targetBranch, title: issue.title, description: "", labels, isDraft,
+            });
+            const url = mr.web_url ?? "";
+            results.push({ name: localRepo.name, ok: true, url, existing: false });
+            task.title = idx + "  " + chalk.bold(p.white(localRepo.name)) + "  " + p.green("✔") + (url ? "  " + p.cyan(url) : "");
+          } catch (e) {
+            const msg = (e.message ?? "").toLowerCase();
+            if (msg.includes("already exists") || msg.includes("open merge request")) {
+              results.push({ name: localRepo.name, ok: true, url: "", existing: true });
+              task.title = idx + "  " + chalk.bold(p.white(localRepo.name)) + "  " + p.teal("◉  already exists");
+            } else {
+              const clean = (e.message ?? "").replace(/\n/g, " ").trim();
+              results.push({ name: localRepo.name, ok: false, url: "", existing: false, msg: clean });
+              task.title = idx + "  " + chalk.bold(p.white(localRepo.name)) + "  " + p.red("✘  ") + p.muted(clean.slice(0, 65));
+              throw new Error(clean);
+            }
+          }
+        },
+      };
+    }),
+    { concurrent: true, exitOnError: false },
+  );
+
+  await listTasks.run().catch(() => { });
+  console.log();
+
+  const opened = results.filter((r) => r.ok && !r.existing);
+  const existing = results.filter((r) => r.ok && r.existing);
+  const failed = results.filter((r) => !r.ok);
+  const sep = p.slate("   ·   ");
+  const parts = [];
+  if (opened.length) parts.push(chalk.bold(p.green(`✔  ${opened.length} opened`)));
+  if (existing.length) parts.push(p.teal(`◉  ${existing.length} already existed`));
+  if (failed.length) parts.push(p.red(`✘  ${failed.length} failed`));
+  console.log(
+    boxen(
+      parts.join(sep) + "\n" + p.muted(`${selectedReady.length} repo${selectedReady.length !== 1 ? "s" : ""} processed`),
+      { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: "round", borderColor: failed.length > 0 ? "#f87171" : "#4ade80" },
+    ),
+  );
+
+  const successful = results.filter((r) => r.ok && r.url);
+  if (successful.length > 0) {
+    const maxN = Math.max(...successful.map((r) => r.name.length));
+    console.log();
+    console.log("  " + chalk.bold(p.white("Merge Requests")));
+    console.log("  " + p.dim("─".repeat(50)));
+    for (const r of successful) {
+      console.log(
+        "  " + (r.existing ? p.teal("◉") : p.green("✔")) +
+        "  " + chalk.bold(p.white(r.name.padEnd(maxN))) + "  " + p.cyan(r.url),
+      );
+    }
+  }
+  console.log();
 }
 
 // ── Repo matcher ──────────────────────────────────────────────────────────────
@@ -685,6 +979,11 @@ export async function cmdPortal(repos, { settings = false } = {}) {
               name: p.teal("⎇  Checkout to primary branches"),
               description: p.muted("switch local repos to their primary branches"),
             }] : []),
+            ...(hasIssues && hasLocalHit ? [{
+              value: "epicMr",
+              name: p.purple("⊞  Create MRs for epic"),
+              description: p.muted("open a merge request per issue from each primary branch"),
+            }] : []),
             {
               value: "create",
               name: p.green("+ Create new issue"),
@@ -718,6 +1017,12 @@ export async function cmdPortal(repos, { settings = false } = {}) {
           continue issueLoop;
         }
 
+        // Create MRs for all issues in this epic
+        if (action === "epicMr") {
+          await cmdEpicMr(epicIssues, glabRepos, portalConfig);
+          continue issueLoop;
+        }
+
         // View existing issue
         if (action === "view") {
           const issueChoice = await search({
@@ -748,7 +1053,7 @@ export async function cmdPortal(repos, { settings = false } = {}) {
             theme: THEME,
           });
           console.log();
-          if (issueChoice !== "__back__") await cmdIssueView(issueChoice);
+          if (issueChoice !== "__back__") await cmdIssueView(issueChoice, glabRepos, portalConfig);
           continue issueLoop;
         }
 
@@ -780,10 +1085,12 @@ export async function cmdPortal(repos, { settings = false } = {}) {
         // 4. Issue details
         const defaultTitle = `${epic.title} - ${projectChoice.name}`;
 
-        const issueTitle = await input({
+        // 4. Issue details — use enquirer initial so backspace works char-by-char
+        const { issueTitle } = await enquirer.prompt({
+          type: "input",
+          name: "issueTitle",
           message: p.white("Title:"),
-          default: defaultTitle,
-          theme: THEME,
+          initial: defaultTitle,
           validate: (v) => v.trim() !== "" || "Title cannot be empty",
         });
 
@@ -841,16 +1148,40 @@ export async function cmdPortal(repos, { settings = false } = {}) {
         if (resolvedIterationId === "__current__") {
           try {
             const groupEnc = encodeURIComponent(group);
+            const todayUtc = new Date().toISOString().slice(0, 10);
             const activeIters = await glabApi(`groups/${groupEnc}/iterations?state=current&per_page=1`);
-            resolvedIterationId = Array.isArray(activeIters) && activeIters[0]?.id
-              ? activeIters[0].id
-              : null;
+            const iter = Array.isArray(activeIters) ? activeIters[0] : null;
+            if (iter && iter.due_date > todayUtc) {
+              // Iteration is still open past today — safe to use
+              resolvedIterationId = iter.id;
+            } else {
+              // Ends today or none found — GitLab silently drops same-day assignments,
+              // so grab the next upcoming iteration instead
+              const nextIters = await glabApi(`groups/${groupEnc}/iterations?state=upcoming&per_page=1`);
+              const next = Array.isArray(nextIters) ? nextIters[0] : null;
+              resolvedIterationId = next?.id ?? null;
+            }
           } catch {
             resolvedIterationId = null;
           }
         }
 
-        const issueFields = { title: issueTitle.trim(), epic_iid: epic.iid };
+
+        // Resolve the real classic epic ID via REST — the GraphQL WorkItems API
+        // returns gid://gitlab/WorkItem/NNNN which is NOT the epic's database ID.
+        // GET /groups/:group/epics/:iid returns { id: <real numeric id>, ... }.
+        let epicId = null;
+        try {
+          const epicRest = await glabApi(`groups/${encodeURIComponent(group)}/epics/${epic.iid}`);
+          epicId = epicRest.id ?? null;
+        } catch {
+          // If REST fetch fails (e.g. group path mismatch), fall back to iid
+        }
+        const issueFields = {
+          title: issueTitle.trim(),
+          ...(epicId ? { epic_id: epicId } : { epic_iid: epic.iid }),
+        };
+
         if (issueDesc.trim()) issueFields.description = issueDesc.trim();
         if (issueLabels.trim()) issueFields.labels = issueLabels.trim();
         if (portalConfig.defaultMilestone?.id) issueFields.milestone_id = portalConfig.defaultMilestone.id;
@@ -900,17 +1231,21 @@ export async function cmdPortal(repos, { settings = false } = {}) {
         if (wantBranch) {
           const defaultBranchName = `feature/${issue.iid}-${slugify(issueTitle)}`;
 
-          const branchName = await input({
+          // Use enquirer's Input so `initial` goes into the edit buffer —
+          // @inquirer/prompts `default` is a hint that backspace wipes instantly.
+          const { branchName } = await enquirer.prompt({
+            type: "input",
+            name: "branchName",
             message: p.white("Branch name:"),
-            default: defaultBranchName,
-            theme: THEME,
+            initial: defaultBranchName,
             validate: (v) => v.trim() !== "" || "Branch name cannot be empty",
           });
 
-          const baseBranchName = await input({
+          const { baseBranchName } = await enquirer.prompt({
+            type: "input",
+            name: "baseBranchName",
             message: p.white("Base branch:"),
-            default: portalConfig.defaultBaseBranch ?? "develop",
-            theme: THEME,
+            initial: portalConfig.defaultBaseBranch ?? "develop",
             validate: (v) => v.trim() !== "" || "Base branch cannot be empty",
           });
 
