@@ -5,7 +5,9 @@ const pkgPath = new URL("../package.json", import.meta.url).pathname;
 let VERSION = "1.6.0";
 try {
   VERSION = JSON.parse(readFileSync(pkgPath, "utf8")).version;
-} catch { }
+} catch (e) {
+  console.error("Failed to read version:", e);
+}
 
 export { VERSION };
 export const MAX_JOBS = cpus().length;

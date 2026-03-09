@@ -422,7 +422,7 @@ async function cmdIssueMr(issue, glabRepos, portalConfig) {
 
 // ── Epic bulk MR creation ─────────────────────────────────────────────────────
 // Creates MRs in parallel for all issues that have a primary branch + local repo.
-async function cmdEpicMr(epicIssues, glabRepos, portalConfig) {
+async function cmdEpicMr(epicIssues, glabRepos, portalConfig, { autoConfirm = false } = {}) {
   const primaryBranches = loadConfig().portal?.primaryBranches ?? {};
 
   const candidates = epicIssues.map((issue) => {
@@ -452,6 +452,15 @@ async function cmdEpicMr(epicIssues, glabRepos, portalConfig) {
     console.log();
   }
 
+  let selectedReady;
+
+  if (autoConfirm) {
+    // Non-interactive: use all ready repos without showing the picker
+    selectedReady = ready;
+    if (skipped.length > 0) {
+      console.log();
+    }
+  } else {
   // Multi-select: all ready repos pre-selected, space to toggle, Esc to go back
   const choices = ready.map((c) => ({
     name: c.localRepo.name,
@@ -485,31 +494,46 @@ async function cmdEpicMr(epicIssues, glabRepos, portalConfig) {
     return;
   }
 
-  const selectedReady = selectedNames
+  selectedReady = selectedNames
     .map((name) => ready.find((c) => c.localRepo.name === name))
     .filter(Boolean);
+  } // end autoConfirm / interactive split
 
-  // Shared options — prompt once for all
-  const { targetBranch } = await enquirer.prompt({
-    type: "input",
-    name: "targetBranch",
-    message: p.white("Target branch") + p.muted(" (for all):"),
-    initial: portalConfig.defaultBaseBranch ?? "develop",
-    validate: (v) => v.trim() !== "" || "Required",
-  });
-  const labels = await input({
-    message: p.white("Labels") + p.muted(" (optional, applied to all):"),
-    default: portalConfig.defaultLabels ?? "",
-    theme: { ...THEME, style: { ...THEME.style, answer: (s) => p.purple(s) } },
-  });
-  const isDraft = await confirm({ message: p.white("Mark all as") + p.muted(" Draft?"), default: false, theme: THEME });
-  const pushFirst = await confirm({ message: p.white("Push branches") + p.muted(" first?"), default: true, theme: THEME });
+  // Shared options — prompt once for all (skip prompts when auto-confirming)
+  const targetBranch = autoConfirm
+    ? (portalConfig.defaultBaseBranch ?? "develop")
+    : (await enquirer.prompt({
+        type: "input",
+        name: "targetBranch",
+        message: p.white("Target branch") + p.muted(" (for all):"),
+        initial: portalConfig.defaultBaseBranch ?? "develop",
+        validate: (v) => v.trim() !== "" || "Required",
+      })).targetBranch;
+
+  const labels = autoConfirm
+    ? (portalConfig.defaultLabels ?? "")
+    : await input({
+        message: p.white("Labels") + p.muted(" (optional, applied to all):"),
+        default: portalConfig.defaultLabels ?? "",
+        theme: { ...THEME, style: { ...THEME.style, answer: (s) => p.purple(s) } },
+      });
+
+  const isDraft = autoConfirm
+    ? false
+    : await confirm({ message: p.white("Mark all as") + p.muted(" Draft?"), default: false, theme: THEME });
+
+  const pushFirst = autoConfirm
+    ? true
+    : await confirm({ message: p.white("Push branches") + p.muted(" first?"), default: true, theme: THEME });
+
   console.log();
 
-  const confirmed = await confirm({
-    message: p.white("Create ") + p.cyan(String(selectedReady.length)) + p.white(` MR${selectedReady.length !== 1 ? "s" : ""}?`),
-    default: true, theme: THEME,
-  });
+  const confirmed = autoConfirm
+    ? true
+    : await confirm({
+        message: p.white("Create ") + p.cyan(String(selectedReady.length)) + p.white(` MR${selectedReady.length !== 1 ? "s" : ""}?`),
+        default: true, theme: THEME,
+      });
   console.log();
   if (!confirmed) return;
 
@@ -606,7 +630,7 @@ function findLocalRepo(glabRepos, projectPath) {
 // Checks out the primary branch for each issue's local repo.
 // If a primary branch is not yet set, asks the user to pick one first.
 
-async function cmdEpicCheckout(epicIssues, glabRepos) {
+async function cmdEpicCheckout(epicIssues, glabRepos, { autoConfirm = false } = {}) {
   // Build tasks: match each issue to a local repo by project path
   const seen = new Map(); // projectPath → task (deduplicate; last issue wins)
   const tasks = [];
@@ -710,11 +734,13 @@ async function cmdEpicCheckout(epicIssues, glabRepos) {
   );
   console.log();
 
-  const confirmed = await confirm({
-    message: p.white("Checkout ") + p.cyan(String(checkouts.length)) + p.white(" repo" + (checkouts.length !== 1 ? "s" : "") + "?"),
-    default: true,
-    theme: THEME,
-  });
+  const confirmed = autoConfirm
+    ? true
+    : await confirm({
+        message: p.white("Checkout ") + p.cyan(String(checkouts.length)) + p.white(" repo" + (checkouts.length !== 1 ? "s" : "") + "?"),
+        default: true,
+        theme: THEME,
+      });
   console.log();
   if (!confirmed) return;
 
@@ -737,7 +763,30 @@ async function cmdEpicCheckout(epicIssues, glabRepos) {
 
 // ── Main portal command ────────────────────────────────────────────────────────
 
-export async function cmdPortal(repos, { settings = false } = {}) {
+export async function cmdPortal(repos, {
+  settings    = false,
+  // ── non-interactive opts ────────────────────────────────────────────────────────────
+  epic:             cliEpic      = null,  // --epic <iid>
+  checkout:         cliCheckout  = false, // --checkout
+  createMr:         cliCreateMr  = false, // --create-mr
+  createIssue:      cliCreateIssue = false, // --create-issue
+  // shared
+  target:           cliTarget       = null, // --target
+  title:            cliTitle        = null, // --title (MR)
+  description:      cliDescription  = null,
+  labels:           cliLabels       = null,
+  draft:            cliDraft        = false,
+  noPush:           cliNoPush       = false,
+  // issue creation
+  issueProject:     cliIssueProject     = null,
+  issueTitle:       cliIssueTitle       = null,
+  issueDescription: cliIssueDescription = null,
+  issueLabels:      cliIssueLabels      = null,
+  branchName:       cliBranchName       = null,
+  baseBranch:       cliBaseBranch       = null,
+  // auto-confirm
+  yes:              autoConfirm         = false,
+} = {}) {
   const config = loadConfig();
   const portalConfig = config.portal ?? {};
 
@@ -871,6 +920,167 @@ export async function cmdPortal(repos, { settings = false } = {}) {
     )
   ).filter(Boolean);
 
+  // ── Non-interactive dispatch ─────────────────────────────────────────────────
+  // When any action flag is set, resolve the epic (if --epic provided) and dispatch
+  // directly without showing any menus.
+  const hasCliAction = cliEpic || cliCheckout || cliCreateMr || cliCreateIssue;
+  if (hasCliAction) {
+    let resolvedEpic = null;
+
+    if (cliEpic) {
+      resolvedEpic = epics.find((e) => String(e.iid) === String(cliEpic));
+      if (!resolvedEpic) {
+        console.log(
+          boxen(
+            chalk.bold(p.red(`Epic #${cliEpic} not found`)) + "\n" +
+            p.muted("Available IIDs: ") + epics.map((e) => `#${e.iid}`).join(", "),
+            { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: "round", borderColor: "#f87171" },
+          ),
+        );
+        return 1;
+      }
+    }
+
+    // --create-mr via portal (non-interactive MR command)
+    if (cliCreateMr && !cliEpic) {
+      return await cmdMr(repos, {
+        target:      cliTarget,
+        title:       cliTitle,
+        description: cliDescription,
+        labels:      cliLabels,
+        draft:       cliDraft,
+        noPush:      cliNoPush,
+        yes:         autoConfirm,
+      });
+    }
+
+    if (resolvedEpic) {
+      // Fetch issues for the resolved epic
+      process.stdout.write("  " + p.muted("Loading issues…\r"));
+      const epicIssues = await fetchEpicIssues(group, resolvedEpic.iid);
+      process.stdout.write(" ".repeat(40) + "\r");
+
+      if (cliCheckout) {
+        return await cmdEpicCheckout(epicIssues, glabRepos, { autoConfirm });
+      }
+
+      if (cliCreateMr) {
+        // Bulk epic MR — override shared options in portalConfig for non-interactive
+        const mergedPortalConfig = {
+          ...portalConfig,
+          ...(cliTarget  ? { defaultBaseBranch: cliTarget } : {}),
+          ...(cliLabels  ? { defaultLabels: cliLabels }     : {}),
+        };
+        return await cmdEpicMr(epicIssues, glabRepos, mergedPortalConfig, { autoConfirm });
+      }
+
+      if (cliCreateIssue) {
+        if (!cliIssueProject) {
+          console.log(p.red("  --issue-project is required for non-interactive issue creation.\n"));
+          return 1;
+        }
+        if (!cliIssueTitle) {
+          console.log(p.red("  --issue-title is required for non-interactive issue creation.\n"));
+          return 1;
+        }
+
+        const projectChoice = glabRepos.find(
+          (r) => r.name === cliIssueProject || r.projectPath === cliIssueProject,
+        );
+        if (!projectChoice) {
+          console.log(p.red(`  Project "${cliIssueProject}" not found in local GitLab repos.\n`));
+          return 1;
+        }
+
+        // Resolve epic ID
+        let epicId = null;
+        try {
+          const epicRest = await glabApi(`groups/${encodeURIComponent(group)}/epics/${resolvedEpic.iid}`);
+          epicId = epicRest.id ?? null;
+        } catch { }
+
+        const issueFields = {
+          title: cliIssueTitle.trim(),
+          ...(epicId ? { epic_id: epicId } : { epic_iid: resolvedEpic.iid }),
+        };
+        if (cliIssueDescription?.trim()) issueFields.description = cliIssueDescription.trim();
+        const effectiveLabels = cliIssueLabels ?? portalConfig.defaultLabels ?? null;
+        if (effectiveLabels?.trim()) issueFields.labels = effectiveLabels.trim();
+        if (portalConfig.defaultMilestone?.id) issueFields.milestone_id = portalConfig.defaultMilestone.id;
+
+        const enc = encodeURIComponent(projectChoice.projectPath);
+        process.stdout.write("  " + p.muted("Creating issue…\r"));
+        let issue;
+        try {
+          issue = await glabApi(`projects/${enc}/issues`, { method: "POST", fields: issueFields });
+          process.stdout.write(" ".repeat(40) + "\r");
+        } catch (e) {
+          process.stdout.write(" ".repeat(40) + "\r");
+          console.log(
+            boxen(
+              chalk.bold(p.red("Failed to create issue")) + "\n\n" + p.muted(e.message.slice(0, 100)),
+              { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: "round", borderColor: "#f87171" },
+            ),
+          );
+          return 1;
+        }
+
+        console.log(
+          boxen(
+            chalk.bold(p.green(`✔  Issue #${issue.iid} created`)) + "\n  " + p.muted(issue.web_url ?? ""),
+            { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: "round", borderColor: "#4ade80" },
+          ),
+        );
+        console.log();
+
+        // Non-interactive branch creation if --branch-name is provided
+        if (cliBranchName) {
+          const baseBr = cliBaseBranch ?? portalConfig.defaultBaseBranch ?? "develop";
+          process.stdout.write("  " + p.muted("Creating branch…\r"));
+          try {
+            await glabApi(`projects/${enc}/repository/branches`, {
+              method: "POST",
+              fields: { branch: cliBranchName.trim(), ref: baseBr.trim() },
+            });
+            process.stdout.write(" ".repeat(40) + "\r");
+            console.log(
+              boxen(
+                chalk.bold(p.green("✔  Branch created")) + "  " + colorBranch(cliBranchName.trim()),
+                { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: "round", borderColor: "#4ade80" },
+              ),
+            );
+            // Auto-set as primary
+            const cfgNow = loadConfig();
+            const pbNow = { ...(cfgNow.portal?.primaryBranches ?? {}), [`${projectChoice.projectPath}#${issue.iid}`]: cliBranchName.trim() };
+            saveConfig({ ...cfgNow, portal: { ...cfgNow.portal, primaryBranches: pbNow } });
+          } catch (e) {
+            process.stdout.write(" ".repeat(40) + "\r");
+            console.log(
+              boxen(
+                chalk.bold(p.red("Branch creation failed")) + "\n\n" + p.muted(e.message.slice(0, 80)),
+                { padding: { top: 0, bottom: 0, left: 2, right: 2 }, borderStyle: "round", borderColor: "#f87171" },
+              ),
+            );
+          }
+          console.log();
+        }
+
+        return 0;
+      }
+    }
+
+    // Fallthrough: --epic was given but no action flag — just print the epic's issues
+    if (resolvedEpic) {
+      process.stdout.write("  " + p.muted("Loading issues…\r"));
+      const epicIssues = await fetchEpicIssues(group, resolvedEpic.iid);
+      process.stdout.write(" ".repeat(40) + "\r");
+      const pb = loadConfig().portal?.primaryBranches ?? {};
+      console.log(p.white(`  Epic #${resolvedEpic.iid}: `) + chalk.bold(p.cyan(resolvedEpic.title)) + "\n");
+      printEpicIssues(epicIssues, pb);
+      return 0;
+    }
+  }
+
   // ── Portal home menu ─────────────────────────────────────────────────────────
   portalHome: while (true) {
     const section = await select({
@@ -899,7 +1109,15 @@ export async function cmdPortal(repos, { settings = false } = {}) {
     if (section === "__back__") return "__back__";
 
     if (section === "mr") {
-      const r = await cmdMr(repos);
+      const r = await cmdMr(repos, {
+        target:      cliTarget,
+        title:       cliTitle,
+        description: cliDescription,
+        labels:      cliLabels,
+        draft:       cliDraft,
+        noPush:      cliNoPush,
+        yes:         autoConfirm,
+      });
       if (r !== "__back__") return r;
       continue portalHome;
     }
@@ -1013,13 +1231,13 @@ export async function cmdPortal(repos, { settings = false } = {}) {
 
         // Checkout all repos to their primary branches
         if (action === "checkout") {
-          await cmdEpicCheckout(epicIssues, glabRepos);
+          await cmdEpicCheckout(epicIssues, glabRepos, { autoConfirm });
           continue issueLoop;
         }
 
         // Create MRs for all issues in this epic
         if (action === "epicMr") {
-          await cmdEpicMr(epicIssues, glabRepos, portalConfig);
+          await cmdEpicMr(epicIssues, glabRepos, portalConfig, { autoConfirm });
           continue issueLoop;
         }
 

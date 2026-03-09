@@ -14,9 +14,21 @@ import { loadConfig, saveConfig } from "../config/index.js";
 import { p, THEME } from "../ui/theme.js";
 import { colorBranch } from "../ui/colors.js";
 
-export async function cmdMr(repos) {
+export async function cmdMr(repos, opts = {}) {
   const config   = loadConfig();
   const mrConfig = config.mr ?? {};
+
+  // Destructure CLI opts (all optional — absence falls through to interactive prompts)
+  const {
+    target:      cliTarget,
+    mrRepos:     cliMrRepos,
+    title:       cliTitle,
+    description: cliDescription,
+    labels:      cliLabels,
+    draft:       cliDraft,
+    noPush:      cliNoPush,
+    yes:         autoConfirm,
+  } = opts;
 
   try {
     execSync("glab version", { encoding: "utf8", stdio: "pipe" });
@@ -179,6 +191,23 @@ export async function cmdMr(repos) {
   let selected;
   let targetBranch;
 
+  // ── Non-interactive path — both --target and (optionally) --repo supplied ────
+  if (cliTarget) {
+    targetBranch = cliTarget;
+
+    if (cliMrRepos) {
+      // Filter by requested repo names
+      selected = repoInfo.filter((r) => cliMrRepos.includes(r.name));
+      if (selected.length === 0) {
+        console.log(p.yellow(`  No matching repos for --repo filter(s).\n`));
+        return 1;
+      }
+    } else {
+      // Use all repos in scope
+      selected = repoInfo;
+    }
+  } else {
+  // ── Interactive path ─────────────────────────────────────────────────────────
   selectionFlow: while (true) {
     const selMode = await select({
       message: p.white("Scope:"),
@@ -222,34 +251,46 @@ export async function cmdMr(repos) {
       break selectionFlow;
     }
   }
+  } // end non-interactive / interactive split
 
-  const title = await input({
-    message: p.white("Title") + p.muted(" (blank → use last commit message):"),
-    theme:   THEME,
-  });
+  const title = cliTitle !== null && cliTitle !== undefined
+    ? cliTitle
+    : await input({
+        message: p.white("Title") + p.muted(" (blank → use last commit message):"),
+        theme:   THEME,
+      });
 
-  const description = await input({
-    message: p.white("Description") + p.muted(" (blank → use commit body):"),
-    theme:   THEME,
-  });
+  const description = cliDescription !== null && cliDescription !== undefined
+    ? cliDescription
+    : await input({
+        message: p.white("Description") + p.muted(" (blank → use commit body):"),
+        theme:   THEME,
+      });
 
-  const labels = await input({
-    message: p.white("Labels") + p.muted(" (comma separated, optional):"),
-    default: mrConfig.labels ?? "",
-    theme:   { ...THEME, style: { ...THEME.style, answer: (s) => p.purple(s) } },
-  });
+  const labels = cliLabels !== null && cliLabels !== undefined
+    ? cliLabels
+    : await input({
+        message: p.white("Labels") + p.muted(" (comma separated, optional):"),
+        default: mrConfig.labels ?? "",
+        theme:   { ...THEME, style: { ...THEME.style, answer: (s) => p.purple(s) } },
+      });
 
-  const isDraft = await confirm({
-    message: p.white("Mark as") + p.muted(" Draft?"),
-    default: mrConfig.isDraft ?? false,
-    theme:   THEME,
-  });
+  const isDraft = cliDraft
+    ? true
+    : await confirm({
+        message: p.white("Mark as") + p.muted(" Draft?"),
+        default: mrConfig.isDraft ?? false,
+        theme:   THEME,
+      });
 
-  const pushFirst = await confirm({
-    message: p.white("Push branch") + p.muted(" to remote before creating MR?"),
-    default: mrConfig.pushFirst ?? true,
-    theme:   THEME,
-  });
+  // --no-push takes priority; cliNoPush=true means skip push
+  const pushFirst = cliNoPush
+    ? false
+    : await confirm({
+        message: p.white("Push branch") + p.muted(" to remote before creating MR?"),
+        default: mrConfig.pushFirst ?? true,
+        theme:   THEME,
+      });
 
   console.log();
 
@@ -288,13 +329,15 @@ export async function cmdMr(repos) {
   );
   console.log();
 
-  const confirmed = await confirm({
-    message: p.white(
-      selected.length === 1 ? "Create merge request?" : `Create ${selected.length} merge requests?`,
-    ),
-    default: true,
-    theme:   THEME,
-  });
+  const confirmed = autoConfirm
+    ? true
+    : await confirm({
+        message: p.white(
+          selected.length === 1 ? "Create merge request?" : `Create ${selected.length} merge requests?`,
+        ),
+        default: true,
+        theme:   THEME,
+      });
 
   if (!confirmed) {
     console.log("\n" + p.muted("  Aborted.\n"));

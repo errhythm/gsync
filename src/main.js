@@ -19,23 +19,38 @@ import { cmdSettings } from "./commands/settings.js";
 
 // ── Argument parser ───────────────────────────────────────────────────────────
 
+// Options that take a value argument
+const VALUE_OPTIONS = new Set([
+  "--depth", "--exclude", "--filter",
+  // mr
+  "--target", "-t", "--repo", "--title", "--description", "--labels",
+  // portal
+  "--epic", "--issue-project", "--issue-title", "--issue-description",
+  "--issue-labels", "--branch-name", "--base-branch",
+]);
+
 function parseArgs(rawArgs) {
   const flags = new Set();
   const options = {};
   const positional = [];
+  // Multi-value: --repo can appear multiple times
+  const repos = [];
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];
 
-    if ((arg === "--depth" || arg === "--exclude" || arg === "--filter") && rawArgs[i + 1]) {
-      options[arg.slice(2)] = rawArgs[++i];
-    } else if (arg.startsWith("--depth=")) {
-      options.depth = arg.slice(8);
-    } else if (arg.startsWith("--exclude=")) {
-      options.exclude = arg.slice(10);
-    } else if (arg.startsWith("--filter=")) {
-      options.filter = arg.slice(9);
-    } else if (!arg.startsWith("--") && arg.startsWith("-") && arg.length > 2) {
+    if (VALUE_OPTIONS.has(arg) && rawArgs[i + 1] !== undefined) {
+      const key = arg.replace(/^-+/, "").replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      if (arg === "--repo") {
+        repos.push(rawArgs[++i]);
+      } else {
+        options[key] = rawArgs[++i];
+      }
+    } else if (arg.includes("=") && arg.startsWith("--")) {
+      const eqIdx = arg.indexOf("=");
+      const key = arg.slice(2, eqIdx).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+      options[key] = arg.slice(eqIdx + 1);
+    } else if (!arg.startsWith("--") && arg.startsWith("-") && arg.length > 2 && arg !== "-t") {
       for (const c of arg.slice(1)) flags.add(`-${c}`);
     } else if (arg.startsWith("-")) {
       flags.add(arg);
@@ -48,21 +63,58 @@ function parseArgs(rawArgs) {
   const isSubcmd = SUBCOMMANDS.has(first);
 
   return {
+    // ── Core ────────────────────────────────────────────────────────────────
     subcommand: isSubcmd ? first : null,
     branch: isSubcmd ? (positional[1] ?? "") : first,
-    pull: flags.has("--pull") || flags.has("-p"),
-    fuzzy: flags.has("--fuzzy") || flags.has("-f"),
-    create: flags.has("--create") || flags.has("-c"),
-    stash: flags.has("--stash") || flags.has("-s"),
-    fetch: flags.has("--fetch"),
-    dryRun: flags.has("--dry-run"),
-    version: flags.has("--version") || flags.has("-v"),
-    help: flags.has("--help") || flags.has("-h"),
+
+    // ── Switch flags ────────────────────────────────────────────────────────
+    pull:     flags.has("--pull")    || flags.has("-p"),
+    fuzzy:    flags.has("--fuzzy")   || flags.has("-f"),
+    create:   flags.has("--create")  || flags.has("-c"),
+    stash:    flags.has("--stash")   || flags.has("-s"),
+    fetch:    flags.has("--fetch"),
+    dryRun:   flags.has("--dry-run"),
+
+    // ── Global ──────────────────────────────────────────────────────────────
+    version:  flags.has("--version") || flags.has("-v"),
+    help:     flags.has("--help")    || flags.has("-h"),
     settings: flags.has("--settings"),
-    debug: flags.has("--debug"),
-    depth: parseInt(options.depth ?? String(DEFAULT_DEPTH), 10) || DEFAULT_DEPTH,
-    exclude: options.exclude ?? null,
-    filter: options.filter ?? null,
+    debug:    flags.has("--debug"),
+    yes:      flags.has("--yes")     || flags.has("-y"),
+    depth:    parseInt(options.depth ?? String(DEFAULT_DEPTH), 10) || DEFAULT_DEPTH,
+    exclude:  options.exclude ?? null,
+    filter:   options.filter ?? null,
+
+    // ── MR flags ─────────────────────────────────────────────────────────────
+    // --target / -t <branch>  — MR target branch
+    target:      options.target ?? options.t ?? null,
+    // --repo <name>  (repeatable) — restrict MR to these repos
+    mrRepos:     repos.length > 0 ? repos : null,
+    // --title / --description / --labels — MR or issue metadata
+    title:       options.title       ?? null,
+    description: options.description ?? null,
+    labels:      options.labels      ?? null,
+    // --draft  — mark MR as draft
+    draft:       flags.has("--draft"),
+    // --no-push  — skip git push before MR
+    noPush:      flags.has("--no-push"),
+
+    // ── Portal flags ──────────────────────────────────────────────────────────
+    // --epic <iid>  — select epic by IID non-interactively
+    epic:             options.epic             ?? null,
+    // --checkout  — run epic checkout without menus
+    checkout:         flags.has("--checkout"),
+    // --create-mr  — create bulk MRs for epic without menus
+    createMr:         flags.has("--create-mr"),
+    // --create-issue  — go straight to issue creation
+    createIssue:      flags.has("--create-issue"),
+    // Issue creation params
+    issueProject:     options.issueProject     ?? null,
+    issueTitle:       options.issueTitle       ?? null,
+    issueDescription: options.issueDescription ?? null,
+    issueLabels:      options.issueLabels      ?? null,
+    branchName:       options.branchName       ?? null,
+    baseBranch:       options.baseBranch       ?? null,
   };
 }
 
@@ -150,11 +202,39 @@ export async function main() {
   }
 
   if (opts.subcommand === "mr") {
-    return await cmdMr(repos);
+    return await cmdMr(repos, {
+      target:      opts.target,
+      mrRepos:     opts.mrRepos,
+      title:       opts.title,
+      description: opts.description,
+      labels:      opts.labels,
+      draft:       opts.draft,
+      noPush:      opts.noPush,
+      yes:         opts.yes,
+    });
   }
 
   if (opts.subcommand === "portal") {
-    return await cmdPortal(repos, { settings: opts.settings });
+    return await cmdPortal(repos, {
+      settings:         opts.settings,
+      epic:             opts.epic,
+      checkout:         opts.checkout,
+      createMr:         opts.createMr,
+      createIssue:      opts.createIssue,
+      target:           opts.target,
+      title:            opts.title,
+      description:      opts.description,
+      labels:           opts.labels,
+      draft:            opts.draft,
+      noPush:           opts.noPush,
+      issueProject:     opts.issueProject,
+      issueTitle:       opts.issueTitle,
+      issueDescription: opts.issueDescription,
+      issueLabels:      opts.issueLabels,
+      branchName:       opts.branchName,
+      baseBranch:       opts.baseBranch,
+      yes:              opts.yes,
+    });
   }
 
   if (opts.subcommand === "settings") {
