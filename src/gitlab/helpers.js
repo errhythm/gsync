@@ -25,7 +25,7 @@ export function isGitLabRemote(url) {
 
 export function getDefaultBranch(repoPath) {
   try {
-    const out = execSync("git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null", {
+    const out = execSync("git symbolic-ref refs/remotes/origin/HEAD", {
       cwd: repoPath,
       encoding: "utf8",
     }).trim();

@@ -1,30 +1,40 @@
-import { execSync } from "child_process";
-import { join, dirname } from "path";
+import { readdirSync, statSync } from "fs";
+import { join, dirname, sep } from "path";
 
 import { execAsync } from "../utils/exec.js";
 
 export function findRepos(cwd, depth) {
-  try {
-    const out = execSync(
-      `find . -mindepth 1 -maxdepth ${depth} -type d -name '.git' 2>/dev/null`,
-      { cwd, encoding: "utf8" },
-    );
-    const repos = out
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((g) => join(cwd, dirname(g)));
+  const repos = [];
 
-    // Filter out repos nested inside another found repo (submodule / monorepo protection).
-    // A repo is nested if any other repo path is a strict path prefix of it.
-    return repos.filter(
-      (repo) => !repos.some(
-        (other) => other !== repo && repo.startsWith(other + "/"),
-      ),
-    );
-  } catch {
-    return [];
+  function walk(dir, currentDepth) {
+    if (currentDepth > depth) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return; // permission denied or unreadable — skip
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const full = join(dir, entry.name);
+      if (entry.name === ".git") {
+        repos.push(dirname(full));
+        return; // don't recurse into .git itself
+      }
+      // Skip hidden dirs (other than .git above) and node_modules
+      if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
+      walk(full, currentDepth + 1);
+    }
   }
+
+  walk(cwd, 1);
+
+  // Filter out repos nested inside another found repo (submodule / monorepo protection).
+  return repos.filter(
+    (repo) => !repos.some(
+      (other) => other !== repo && repo.startsWith(other + sep),
+    ),
+  );
 }
 
 export async function getCurrentBranch(repoPath) {
@@ -55,7 +65,7 @@ export async function getRepoStatus(repoPath) {
 export async function getAheadBehind(repoPath) {
   try {
     const { stdout } = await execAsync(
-      "git rev-list --left-right --count @{upstream}...HEAD 2>/dev/null",
+      "git rev-list --left-right --count @{upstream}...HEAD",
       { cwd: repoPath, encoding: "utf8" },
     );
     if (!stdout.trim()) return { ahead: 0, behind: 0 };
@@ -65,3 +75,4 @@ export async function getAheadBehind(repoPath) {
     return { ahead: 0, behind: 0 };
   }
 }
+
