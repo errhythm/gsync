@@ -17,27 +17,32 @@ import { cmdSwitch } from "./commands/switch.js";
 import { cmdMr } from "./commands/mr.js";
 import { cmdPortal } from "./commands/portal.js";
 import { cmdSettings } from "./commands/settings.js";
+import { checkForUpdate, awaitUpdateCheck } from "./utils/update-check.js";
+
+// Kick off the update check in the background immediately so the network
+// request runs while the rest of startup happens.
+checkForUpdate();
 
 // ── Dependency checks ─────────────────────────────────────────────────────────
 
 function checkRequiredDeps() {
   // git — required by every command
   try { execSync("git --version", { stdio: "pipe" }); } catch {
-    const isMac   = process.platform === "darwin";
-    const isWin   = process.platform === "win32";
+    const isMac = process.platform === "darwin";
+    const isWin = process.platform === "win32";
     const isLinux = process.platform === "linux";
 
     const installLines = isMac
       ? p.muted("  brew   ") + p.cyan("brew install git") + "\n" +
-        p.muted("  direct ") + p.cyan("https://git-scm.com/download/mac")
+      p.muted("  direct ") + p.cyan("https://git-scm.com/download/mac")
       : isWin
-      ? p.muted("  winget ") + p.cyan("winget install --id Git.Git") + "\n" +
+        ? p.muted("  winget ") + p.cyan("winget install --id Git.Git") + "\n" +
         p.muted("  direct ") + p.cyan("https://git-scm.com/download/win")
-      : isLinux
-      ? p.muted("  apt    ") + p.cyan("sudo apt install git") + "\n" +
-        p.muted("  dnf    ") + p.cyan("sudo dnf install git") + "\n" +
-        p.muted("  pacman ") + p.cyan("sudo pacman -S git")
-      : p.muted("  ") + p.cyan("https://git-scm.com/downloads");
+        : isLinux
+          ? p.muted("  apt    ") + p.cyan("sudo apt install git") + "\n" +
+          p.muted("  dnf    ") + p.cyan("sudo dnf install git") + "\n" +
+          p.muted("  pacman ") + p.cyan("sudo pacman -S git")
+          : p.muted("  ") + p.cyan("https://git-scm.com/downloads");
 
     console.log(
       boxen(
@@ -45,10 +50,10 @@ function checkRequiredDeps() {
         p.white("gitmux requires git. Install it:\n\n") +
         installLines,
         {
-          padding:        { top: 1, bottom: 1, left: 3, right: 3 },
-          borderStyle:    "round",
-          borderColor:    "#f87171",
-          title:          p.red(" missing dependency: git "),
+          padding: { top: 1, bottom: 1, left: 3, right: 3 },
+          borderStyle: "round",
+          borderColor: "#f87171",
+          title: p.red(" missing dependency: git "),
           titleAlignment: "center",
         },
       ),
@@ -108,55 +113,55 @@ function parseArgs(rawArgs) {
     branch: isSubcmd ? (positional[1] ?? "") : first,
 
     // ── Switch flags ────────────────────────────────────────────────────────
-    pull:     flags.has("--pull")    || flags.has("-p"),
-    fuzzy:    flags.has("--fuzzy")   || flags.has("-f"),
-    create:   flags.has("--create")  || flags.has("-c"),
-    stash:    flags.has("--stash")   || flags.has("-s"),
-    fetch:    flags.has("--fetch"),
-    dryRun:   flags.has("--dry-run"),
+    pull: flags.has("--pull") || flags.has("-p"),
+    fuzzy: flags.has("--fuzzy") || flags.has("-f"),
+    create: flags.has("--create") || flags.has("-c"),
+    stash: flags.has("--stash") || flags.has("-s"),
+    fetch: flags.has("--fetch"),
+    dryRun: flags.has("--dry-run"),
 
     // ── Global ──────────────────────────────────────────────────────────────
-    version:  flags.has("--version") || flags.has("-v"),
-    help:     flags.has("--help")    || flags.has("-h"),
+    version: flags.has("--version") || flags.has("-v"),
+    help: flags.has("--help") || flags.has("-h"),
     settings: flags.has("--settings"),
-    debug:    flags.has("--debug"),
-    yes:      flags.has("--yes")     || flags.has("-y"),
-    depth:    parseInt(options.depth ?? String(DEFAULT_DEPTH), 10) || DEFAULT_DEPTH,
-    exclude:  options.exclude ?? null,
-    filter:   options.filter ?? null,
+    debug: flags.has("--debug"),
+    yes: flags.has("--yes") || flags.has("-y"),
+    depth: parseInt(options.depth ?? String(DEFAULT_DEPTH), 10) || DEFAULT_DEPTH,
+    exclude: options.exclude ?? null,
+    filter: options.filter ?? null,
 
     // ── MR flags ─────────────────────────────────────────────────────────────
     // --target / -t <branch>  — MR target branch
-    target:      options.target ?? options.t ?? null,
+    target: options.target ?? options.t ?? null,
     // --repo <name>  (repeatable) — restrict MR to these repos
-    mrRepos:     repos.length > 0 ? repos : null,
+    mrRepos: repos.length > 0 ? repos : null,
     // --title / --description / --labels — MR or issue metadata
-    title:       options.title       ?? null,
+    title: options.title ?? null,
     description: options.description ?? null,
-    labels:      options.labels      ?? null,
+    labels: options.labels ?? null,
     // --draft  — mark MR as draft
-    draft:       flags.has("--draft"),
+    draft: flags.has("--draft"),
     // --no-push  — skip git push before MR
-    noPush:      flags.has("--no-push"),
+    noPush: flags.has("--no-push"),
 
     // ── Portal flags ──────────────────────────────────────────────────────────
     // --epic <iid>  — select epic by IID non-interactively
-    epic:             options.epic             ?? null,
+    epic: options.epic ?? null,
     // --checkout  — run epic checkout without menus
-    checkout:         flags.has("--checkout"),
+    checkout: flags.has("--checkout"),
     // --create-mr  — create bulk MRs for epic without menus
-    createMr:         flags.has("--create-mr"),
+    createMr: flags.has("--create-mr"),
     // --create-issue  — go straight to issue creation
-    createIssue:      flags.has("--create-issue"),
+    createIssue: flags.has("--create-issue"),
     // --review  — run cr review on all primary branches of the epic
-    review:           flags.has("--review"),
+    review: flags.has("--review"),
     // Issue creation params
-    issueProject:     options.issueProject     ?? null,
-    issueTitle:       options.issueTitle       ?? null,
+    issueProject: options.issueProject ?? null,
+    issueTitle: options.issueTitle ?? null,
     issueDescription: options.issueDescription ?? null,
-    issueLabels:      options.issueLabels      ?? null,
-    branchName:       options.branchName       ?? null,
-    baseBranch:       options.baseBranch       ?? null,
+    issueLabels: options.issueLabels ?? null,
+    branchName: options.branchName ?? null,
+    baseBranch: options.baseBranch ?? null,
   };
 }
 
@@ -188,6 +193,27 @@ export async function main() {
   process.stdout.write("\x1Bc");
   printLogo();
   checkRequiredDeps();
+
+  // Show update notice if available (result already fetched in background)
+  const updateInfo = await awaitUpdateCheck();
+  if (updateInfo) {
+    const notice =
+      chalk.green("◆") + "  " +
+      chalk.bold(p.white("update available")) + "  " +
+      p.muted("·") + "  " +
+      p.muted(updateInfo.current) + p.muted(" → ") + chalk.bold(p.green(updateInfo.latest)) + "  " +
+      p.muted("·") + "  " +
+      p.cyan(`npm i -g @errhythm/gitmux@${updateInfo.latest}`);
+
+    console.log(
+      boxen(notice, {
+        padding: { top: 0, bottom: 0, left: 2, right: 2 },
+        borderStyle: "round",
+        borderColor: "#22c55e",
+      }),
+    );
+    console.log();
+  }
 
   const cwd = process.cwd();
   let repos = findRepos(cwd, opts.depth);
@@ -246,38 +272,38 @@ export async function main() {
 
   if (opts.subcommand === "mr") {
     return await cmdMr(repos, {
-      target:      opts.target,
-      mrRepos:     opts.mrRepos,
-      title:       opts.title,
+      target: opts.target,
+      mrRepos: opts.mrRepos,
+      title: opts.title,
       description: opts.description,
-      labels:      opts.labels,
-      draft:       opts.draft,
-      noPush:      opts.noPush,
-      yes:         opts.yes,
+      labels: opts.labels,
+      draft: opts.draft,
+      noPush: opts.noPush,
+      yes: opts.yes,
     });
   }
 
   if (opts.subcommand === "portal") {
     return await cmdPortal(repos, {
-      settings:         opts.settings,
-      epic:             opts.epic,
-      checkout:         opts.checkout,
-      createMr:         opts.createMr,
-      createIssue:      opts.createIssue,
-      review:           opts.review,
-      target:           opts.target,
-      title:            opts.title,
-      description:      opts.description,
-      labels:           opts.labels,
-      draft:            opts.draft,
-      noPush:           opts.noPush,
-      issueProject:     opts.issueProject,
-      issueTitle:       opts.issueTitle,
+      settings: opts.settings,
+      epic: opts.epic,
+      checkout: opts.checkout,
+      createMr: opts.createMr,
+      createIssue: opts.createIssue,
+      review: opts.review,
+      target: opts.target,
+      title: opts.title,
+      description: opts.description,
+      labels: opts.labels,
+      draft: opts.draft,
+      noPush: opts.noPush,
+      issueProject: opts.issueProject,
+      issueTitle: opts.issueTitle,
       issueDescription: opts.issueDescription,
-      issueLabels:      opts.issueLabels,
-      branchName:       opts.branchName,
-      baseBranch:       opts.baseBranch,
-      yes:              opts.yes,
+      issueLabels: opts.issueLabels,
+      branchName: opts.branchName,
+      baseBranch: opts.baseBranch,
+      yes: opts.yes,
     });
   }
 
