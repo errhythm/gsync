@@ -1,4 +1,4 @@
-# gitportal (formerly gsync)
+# gitportal
 
 `gitportal` (alias: `gp`) is a multi-repo Git & GitLab workflow CLI. It operates across all Git repositories found in the current directory tree (up to a configurable depth). 
 
@@ -12,7 +12,7 @@ All commands accept the following global options:
 - `--depth n`: Repo search depth (default: 4).
 - `--filter p`: Only include repos whose name contains pattern.
 - `--exclude p`: Exclude repos whose name contains pattern.
-- `--debug`: Enable verbose debug logging (`GSYNC_DEBUG=1` equivalent).
+- `--debug`: Enable verbose debug logging (`GITPORTAL_DEBUG=1` equivalent).
 
 ### Commands
 
