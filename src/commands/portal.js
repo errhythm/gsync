@@ -933,16 +933,42 @@ export async function cmdPortal(repos, {
   try {
     execSync("glab version", { encoding: "utf8", stdio: "pipe" });
   } catch {
+    const isMac   = process.platform === "darwin";
+    const isWin   = process.platform === "win32";
+    const isLinux = process.platform === "linux";
+
+    const platform = isMac ? "macOS" : isWin ? "Windows" : isLinux ? "Linux" : null;
+
+    const installLines = isMac
+      ? p.muted("  brew     ") + p.cyan("brew install glab") + "\n" +
+        p.muted("  MacPorts ") + p.cyan("sudo port install glab") + "\n" +
+        p.muted("  asdf     ") + p.cyan("asdf plugin add glab && asdf install glab latest")
+      : isWin
+      ? p.muted("  winget   ") + p.cyan("winget install glab.glab") + "\n" +
+        p.muted("  choco    ") + p.cyan("choco install glab") + "\n" +
+        p.muted("  scoop    ") + p.cyan("scoop install glab") + "\n" +
+        p.muted("  brew     ") + p.cyan("brew install glab") + p.muted("  (via WSL)")
+      : isLinux
+      ? p.muted("  brew     ") + p.cyan("brew install glab") + "\n" +
+        p.muted("  snap     ") + p.cyan("sudo snap install glab && sudo snap connect glab:ssh-keys") + "\n" +
+        p.muted("  apt      ") + p.cyan("sudo apt install glab") + p.muted("  (WakeMeOps repo)") + "\n" +
+        p.muted("  pacman   ") + p.cyan("pacman -S glab") + "\n" +
+        p.muted("  dnf      ") + p.cyan("dnf install glab")
+      : p.muted("  ") + p.cyan("https://gitlab.com/gitlab-org/cli#installation");
+
     console.log(
       boxen(
         chalk.bold(p.red("glab not found")) + "\n\n" +
-        p.muted("The GitLab CLI is required for this feature.\n") +
-        p.muted("Install: ") + p.cyan("https://gitlab.com/gitlab-org/cli#installation"),
+        p.white((platform ? `gsync requires the GitLab CLI. Install it on ${platform}:\n\n` : "gsync requires the GitLab CLI:\n\n")) +
+        installLines + "\n\n" +
+        p.white("Then authenticate:\n\n") +
+        p.muted("  ") + p.cyan("glab auth login") + p.muted("   (follow the prompts to connect your GitLab account)") + "\n" +
+        p.muted("  docs  ") + p.cyan("https://gitlab.com/gitlab-org/cli#installation"),
         {
           padding: { top: 1, bottom: 1, left: 3, right: 3 },
           borderStyle: "round",
           borderColor: "#f87171",
-          title: p.red(" missing dependency "),
+          title: p.red(" missing dependency: glab "),
           titleAlignment: "center",
         },
       ),

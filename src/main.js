@@ -1,4 +1,5 @@
 import { basename } from "path";
+import { execSync } from "child_process";
 import chalk from "chalk";
 import boxen from "boxen";
 import { input, confirm, select } from "@inquirer/prompts";
@@ -16,6 +17,45 @@ import { cmdSwitch } from "./commands/switch.js";
 import { cmdMr } from "./commands/mr.js";
 import { cmdPortal } from "./commands/portal.js";
 import { cmdSettings } from "./commands/settings.js";
+
+// ── Dependency checks ─────────────────────────────────────────────────────────
+
+function checkRequiredDeps() {
+  // git — required by every command
+  try { execSync("git --version", { stdio: "pipe" }); } catch {
+    const isMac   = process.platform === "darwin";
+    const isWin   = process.platform === "win32";
+    const isLinux = process.platform === "linux";
+
+    const installLines = isMac
+      ? p.muted("  brew   ") + p.cyan("brew install git") + "\n" +
+        p.muted("  direct ") + p.cyan("https://git-scm.com/download/mac")
+      : isWin
+      ? p.muted("  winget ") + p.cyan("winget install --id Git.Git") + "\n" +
+        p.muted("  direct ") + p.cyan("https://git-scm.com/download/win")
+      : isLinux
+      ? p.muted("  apt    ") + p.cyan("sudo apt install git") + "\n" +
+        p.muted("  dnf    ") + p.cyan("sudo dnf install git") + "\n" +
+        p.muted("  pacman ") + p.cyan("sudo pacman -S git")
+      : p.muted("  ") + p.cyan("https://git-scm.com/downloads");
+
+    console.log(
+      boxen(
+        chalk.bold(p.red("git not found")) + "\n\n" +
+        p.white("gsync requires git. Install it:\n\n") +
+        installLines,
+        {
+          padding:        { top: 1, bottom: 1, left: 3, right: 3 },
+          borderStyle:    "round",
+          borderColor:    "#f87171",
+          title:          p.red(" missing dependency: git "),
+          titleAlignment: "center",
+        },
+      ),
+    );
+    process.exit(1);
+  }
+}
 
 // ── Argument parser ───────────────────────────────────────────────────────────
 
@@ -147,6 +187,7 @@ export async function main() {
 
   process.stdout.write("\x1Bc");
   printLogo();
+  checkRequiredDeps();
 
   const cwd = process.cwd();
   let repos = findRepos(cwd, opts.depth);
