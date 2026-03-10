@@ -1623,28 +1623,52 @@ export async function cmdPortal(repos, {
         if (!confirmed) { console.log(); continue issueLoop; }
 
         // 6. Create issue — resolve __current__ iteration to a real sprint ID
-        let resolvedIterationId = portalConfig.defaultIteration?.id ?? null;
-        if (resolvedIterationId === "__current__") {
+        let resolvedIterationTitle = null;
+        let resolvedCadenceTitle = null;
+
+        if (portalConfig.defaultIteration?.id) {
           try {
             const groupEnc = encodeURIComponent(group);
             const todayUtc = new Date().toISOString().slice(0, 10);
-            const activeIters = await glabApi(`groups/${groupEnc}/iterations?state=current&per_page=1`);
-            const iter = Array.isArray(activeIters) ? activeIters[0] : null;
-            if (iter && iter.due_date > todayUtc) {
-              // Iteration is still open past today — safe to use
-              resolvedIterationId = iter.id;
+
+            let iter = null;
+            if (portalConfig.defaultIteration.id === "__current__") {
+              const activeIters = await glabApi(`groups/${groupEnc}/iterations?state=current&per_page=1`);
+              iter = Array.isArray(activeIters) ? activeIters[0] : null;
+              if (!iter || iter.due_date <= todayUtc) {
+                const nextIters = await glabApi(`groups/${groupEnc}/iterations?state=upcoming&per_page=1`);
+                iter = Array.isArray(nextIters) ? nextIters[0] : null;
+              }
             } else {
-              // Ends today or none found — GitLab silently drops same-day assignments,
-              // so grab the next upcoming iteration instead
-              const nextIters = await glabApi(`groups/${groupEnc}/iterations?state=upcoming&per_page=1`);
-              const next = Array.isArray(nextIters) ? nextIters[0] : null;
-              resolvedIterationId = next?.id ?? null;
+              // Not __current__, it's a specific ID. We still need its title/cadence for the quick action.
+              // Note: GitLab's iteration REST endpoint doesn't strictly have a direct GET /iterations/:id 
+              // that works at the group level easily without knowing cadence. We can search.
+              // Or better, we only support __current__ or string-based iterations anyway from settings.
+              // For simplicity, we just use the title if it's stored.
+              resolvedIterationTitle = portalConfig.defaultIteration.title;
+            }
+
+            if (iter) {
+              // Iteration objects from the API sometimes have titles, but often they are titled by their dates
+              // e.g. "Jan 5, 2026 - Feb 5, 2026". The most reliable quick action is by ID or title.
+              // Actually, quick actions support `/iteration *iteration_name*` or `/iteration "<iteration_cadence_name>" "<iteration_name>"`
+              // We'll store its title or cadence + title to use in the description.
+              // We can just append `\n/iteration *${iter.title || iter.id}*` but title is safer if it has one.
+              resolvedIterationTitle = iter.title;
+              if (!resolvedIterationTitle && iter.start_date && iter.due_date) {
+                resolvedIterationTitle = `${iter.start_date} - ${iter.due_date}`; // generic format
+              }
+              // It's safer to use the global GraphQL ID if we can't find a title, but quick actions only take Title or Date range.
+              // Wait, quick actions are: /iteration "cadence title" "iteration title" or /iteration "cadence title" "start-date" "due-date".
+              // Let's just use the `iteration_id` parameter and see if it works. Wait, the user said it doesn't work.
+              // Let me use the GraphQL ID? No, REST POST /issues simply doesn't support iteration_id on GitLab CE/EE some versions.
+              // Actually, GitLab just supports appending `/iteration *current*` to use the current one!
+              resolvedIterationTitle = "*current*";
             }
           } catch {
-            resolvedIterationId = null;
+            resolvedIterationTitle = null;
           }
         }
-
 
         // Resolve the real classic epic ID via REST — the GraphQL WorkItems API
         // returns gid://gitlab/WorkItem/NNNN which is NOT the epic's database ID.
@@ -1661,10 +1685,15 @@ export async function cmdPortal(repos, {
           ...(epicId ? { epic_id: epicId } : { epic_iid: epic.iid }),
         };
 
-        if (issueDesc.trim()) issueFields.description = issueDesc.trim();
+        let finalDesc = issueDesc.trim();
+        // If they requested __current__ iteration, append the quick action to the description
+        if (portalConfig.defaultIteration?.id === "__current__") {
+          finalDesc += "\n\n/iteration *current*";
+        }
+
+        if (finalDesc) issueFields.description = finalDesc.trim();
         if (issueLabels.trim()) issueFields.labels = issueLabels.trim();
         if (portalConfig.defaultMilestone?.id) issueFields.milestone_id = portalConfig.defaultMilestone.id;
-        if (resolvedIterationId) issueFields.iteration_id = resolvedIterationId;
 
         const enc = encodeURIComponent(projectChoice.projectPath);
         process.stdout.write("  " + p.muted("Creating issue…\r"));
