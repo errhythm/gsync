@@ -303,22 +303,31 @@ export async function main() {
       p.muted(` ${repos.length === 1 ? "repo" : "repos"} in scope\n`),
     );
 
-    // Mode selector — loop so "go back" from sub-commands returns here
+    // Helper to detect ESC / ExitPromptError from @inquirer/prompts
+    const isEsc = (e) => e?.name === "ExitPromptError";
+
+    // Mode selector — loop so ESC / "go back" from sub-commands returns here
     modeLoop: while (true) {
-      const mode = await select({
-        message: p.white("What do you want to do?"),
-        choices: [
-          {
-            value: "switch",
-            name: p.cyan("⇌  Switch branches") + p.muted("   checkout a branch across all repos"),
-          },
-          {
-            value: "portal",
-            name: chalk.hex("#FC6D26")("◈  GitLab") + p.muted("   development portal — epics, MRs & branches"),
-          },
-        ],
-        theme: THEME,
-      });
+      let mode;
+      try {
+        mode = await select({
+          message: p.white("What do you want to do?"),
+          choices: [
+            {
+              value: "switch",
+              name: p.cyan("⇌  Switch branches") + p.muted("   checkout a branch across all repos"),
+            },
+            {
+              value: "portal",
+              name: chalk.hex("#FC6D26")("◈  GitLab") + p.muted("   development portal — epics, MRs & branches"),
+            },
+          ],
+          theme: THEME,
+        });
+      } catch (e) {
+        if (isEsc(e)) { console.log("\n" + p.muted("  Exited.\n")); return 0; }
+        throw e;
+      }
 
       console.log();
 
@@ -328,47 +337,66 @@ export async function main() {
         continue;
       }
 
-      // ── Switch branch flow (with back support) ─────────────────────────────
+      // ── Switch branch flow ─────────────────────────────────────────────────
+      // ESC at any prompt navigates back one level; no explicit "← Go back" needed.
       const branchSuggestions = getSwitchBranchSuggestions(config);
 
       if (branchSuggestions.length > 0) {
-        const branchChoice = await select({
-          message: p.white("Suggested branch:"),
-          choices: [
-            { value: "__back__", name: p.yellow("← Go back"), description: p.muted("return to main menu") },
-            ...branchSuggestions.map((item) => ({
-              value: item.value,
-              name: colorBranch(item.value),
-              description: p.muted(item.template),
-            })),
-            {
-              value: "__custom__",
-              name: p.white("Custom branch..."),
-              description: p.muted("type any branch name or partial"),
-            },
-          ],
-          theme: THEME,
-        });
+        // Inner loop so ESC on the custom-branch input returns to suggestions.
+        suggestionLoop: while (true) {
+          let branchChoice;
+          try {
+            branchChoice = await select({
+              message: p.white("Suggested branch:"),
+              choices: [
+                ...branchSuggestions.map((item) => ({
+                  value: item.value,
+                  name: colorBranch(item.value),
+                  description: p.muted(item.template),
+                })),
+                {
+                  value: "__custom__",
+                  name: p.white("Custom branch..."),
+                  description: p.muted("type any branch name or partial"),
+                },
+              ],
+              theme: THEME,
+            });
+          } catch (e) {
+            if (isEsc(e)) { console.log(); continue modeLoop; } // ESC → mode selector
+            throw e;
+          }
 
-        console.log();
+          console.log();
 
-        if (branchChoice === "__back__") continue modeLoop;
+          if (branchChoice === "__custom__") {
+            try {
+              targetBranch = await input({
+                message: p.white("Branch name") + p.muted(" (or partial):"),
+                theme: THEME,
+                validate: (v) => v.trim() !== "" || "Branch name cannot be empty",
+              });
+            } catch (e) {
+              if (isEsc(e)) { console.log(); continue suggestionLoop; } // ESC → suggestions
+              throw e;
+            }
+          } else {
+            targetBranch = branchChoice;
+          }
 
-        if (branchChoice === "__custom__") {
+          break suggestionLoop;
+        }
+      } else {
+        try {
           targetBranch = await input({
             message: p.white("Branch name") + p.muted(" (or partial):"),
             theme: THEME,
             validate: (v) => v.trim() !== "" || "Branch name cannot be empty",
           });
-        } else {
-          targetBranch = branchChoice;
+        } catch (e) {
+          if (isEsc(e)) { console.log(); continue modeLoop; } // ESC → mode selector
+          throw e;
         }
-      } else {
-        targetBranch = await input({
-          message: p.white("Branch name") + p.muted(" (or partial):"),
-          theme: THEME,
-          validate: (v) => v.trim() !== "" || "Branch name cannot be empty",
-        });
       }
 
       break modeLoop; // branch was chosen — proceed to confirm prompts
