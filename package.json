@@ -1,11 +1,11 @@
 {
-  "name": "gitplex",
+  "name": "gitmux",
   "version": "1.6.2",
   "description": "Multi-repo Git & GitLab workflow CLI — switch branches, manage epics & issues, create MRs, all from the terminal",
   "type": "module",
   "bin": {
-    "gitplex": "bin/gitplex.js",
-    "gp": "bin/gitplex.js"
+    "gitmux": "bin/gitmux.js",
+    "gmux": "bin/gitmux.js"
   },
   "files": [
     "bin",

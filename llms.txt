@@ -1,6 +1,6 @@
-# gitplex
+# gitmux
 
-`gitplex` (alias: `gp`) is a multi-repo Git & GitLab workflow CLI. It operates across all Git repositories found in the current directory tree (up to a configurable depth). 
+`gitmux` (alias: `gp`) is a multi-repo Git & GitLab workflow CLI. It operates across all Git repositories found in the current directory tree (up to a configurable depth). 
 
 It is designed to automate branch switching, status checking, remote fetching, and GitLab Epic/Issue/Merge Request management across many repositories simultaneously.
 
@@ -73,7 +73,7 @@ GitLab Development Portal for managing Epics, MRs, Issues, and Branches.
 Interactive menu to configure portal settings (default group, milestone, iterations), switch settings (branch templates), and MR defaults.
 
 ## Important Notes for AI Agents
-1. **Always use `--yes`** when attempting to automate `gitplex` to bypass Inquirer.js interactive prompts.
-2. The alias `gp` is fully equivalent to `gitplex`.
+1. **Always use `--yes`** when attempting to automate `gitmux` to bypass Inquirer.js interactive prompts.
+2. The alias `gp` is fully equivalent to `gitmux`.
 3. The tool relies directly on the `glab` CLI and `git` being installed and authenticated.
 4. If a command requires knowing the GitLab Epic IID, use the GitLab API or `glab` to fetch the IID before running `--epic <iid>`.

@@ -1,4 +1,4 @@
-# gitplex 🔄
+# gitmux 🔄
 
 Multi-repo Git & GitLab workflow CLI — switch branches, manage epics & issues, create MRs, all from the terminal.
 
@@ -11,7 +11,7 @@ Multi-repo Git & GitLab workflow CLI — switch branches, manage epics & issues,
   ╚═════╝ ╚══════╝   ╚═╝   ╚═╝  ╚═══╝ ╚═════╝
 ```
 
-`gitplex` finds every `.git` repository up to 4 levels deep from your current folder and lets you act on all of them at once — branch switching, status checks, fetch, GitLab merge requests, and a full GitLab development portal (epics, issues, branches) — all from a single interactive TUI.
+`gitmux` finds every `.git` repository up to 4 levels deep from your current folder and lets you act on all of them at once — branch switching, status checks, fetch, GitLab merge requests, and a full GitLab development portal (epics, issues, branches) — all from a single interactive TUI.
 
 Made by E.R.Rhythm.
 
@@ -19,12 +19,12 @@ Made by E.R.Rhythm.
 
 - **Blazing Fast** — Parallel workers (up to CPU count) for all git operations.
 - **Live UI** — Real-time spinners showing `main → develop` transitions per repo.
-- **`gitplex switch`** — Switch branches across all repos simultaneously with pull, stash, create, fuzzy match, and dry-run support.
-- **`gitplex status`** — Table view of all repos: current branch, dirty file count, ahead/behind remote.
-- **`gitplex fetch`** — Fetch all remotes across repos in parallel.
-- **`gitplex mr`** — Interactively create GitLab merge requests via `glab` CLI for one or multiple repos at once.
-- **`gitplex portal`** — GitLab Development Portal: browse assigned Epics, view & create Issues per project, create branches, and checkout primary branches across repos.
-- **`gitplex settings`** — Configure branch suggestion templates, MR defaults, and portal defaults interactively.
+- **`gitmux switch`** — Switch branches across all repos simultaneously with pull, stash, create, fuzzy match, and dry-run support.
+- **`gitmux status`** — Table view of all repos: current branch, dirty file count, ahead/behind remote.
+- **`gitmux fetch`** — Fetch all remotes across repos in parallel.
+- **`gitmux mr`** — Interactively create GitLab merge requests via `glab` CLI for one or multiple repos at once.
+- **`gitmux portal`** — GitLab Development Portal: browse assigned Epics, view & create Issues per project, create branches, and checkout primary branches across repos.
+- **`gitmux settings`** — Configure branch suggestion templates, MR defaults, and portal defaults interactively.
 - **Branch suggestions** — Configure interactive switch presets like `sprint/{yyyy}-{mm}-W{w}` in settings.
 - **Auto-stash** — Stash dirty repos before switching, pop after (`--stash`).
 - **Create branch** — Create the branch if it doesn't exist (`--create`).
@@ -38,7 +38,7 @@ Made by E.R.Rhythm.
 ## Installation
 
 ```bash
-npm install -g @rhythm/gitplex
+npm install -g @rhythm/gitmux
 ```
 
 *(Requires Node.js 18+)*
@@ -48,27 +48,27 @@ npm install -g @rhythm/gitplex
 ### Interactive mode
 
 ```bash
-gitplex
+gitmux
 ```
 
 Launches a mode selector: **Switch branches** or **GitLab** (portal + MRs).
 
-If configured, interactive switch mode first shows computed branch suggestions from `~/.config/gitplex/gitplex.json`, then offers `Custom branch...` if you want to type something else.
+If configured, interactive switch mode first shows computed branch suggestions from `~/.config/gitmux/gitmux.json`, then offers `Custom branch...` if you want to type something else.
 
 ### Switch branches
 
 ```bash
-gitplex develop
-gitplex main --pull
-gitplex feature/auth --stash --pull
-gitplex feat --fuzzy
-gitplex experiment --create
+gitmux develop
+gitmux main --pull
+gitmux feature/auth --stash --pull
+gitmux feat --fuzzy
+gitmux experiment --create
 ```
 
 ### Show repo status
 
 ```bash
-gitplex status
+gitmux status
 ```
 
 Displays a table of every repo with its current branch, dirty file count, and ahead/behind remote sync status.
@@ -76,7 +76,7 @@ Displays a table of every repo with its current branch, dirty file count, and ah
 ### Fetch all remotes
 
 ```bash
-gitplex fetch
+gitmux fetch
 ```
 
 Runs `git fetch --all --prune` across all repos in parallel and shows ahead/behind per repo.
@@ -84,20 +84,20 @@ Runs `git fetch --all --prune` across all repos in parallel and shows ahead/behi
 ### Create merge requests (GitLab)
 
 ```bash
-gitplex mr
+gitmux mr
 ```
 
 Requires [`glab`](https://gitlab.com/gitlab-org/cli#installation) to be installed and authenticated.
 
-Shows all repos with their current branch. Select one or more repos, fill in the details once (title, description, target branch, labels, draft, push first). `gitplex` builds the `glab mr create` command for each repo and runs them, printing each MR URL on completion.
+Shows all repos with their current branch. Select one or more repos, fill in the details once (title, description, target branch, labels, draft, push first). `gitmux` builds the `glab mr create` command for each repo and runs them, printing each MR URL on completion.
 
 Last-used MR settings (target branch, labels, draft mode, push preference, scope) are remembered between runs.
 
 ### GitLab Development Portal
 
 ```bash
-gitplex portal
-gitplex portal --settings
+gitmux portal
+gitmux portal --settings
 ```
 
 Requires [`glab`](https://gitlab.com/gitlab-org/cli#installation) installed and authenticated.
@@ -116,7 +116,7 @@ Run with `--settings` to configure portal defaults (see Settings below).
 ### Settings
 
 ```bash
-gitplex settings
+gitmux settings
 ```
 
 Opens an interactive settings menu with three sections:
@@ -130,7 +130,7 @@ Opens an interactive settings menu with three sections:
 ### Dry-run
 
 ```bash
-gitplex --dry-run develop
+gitmux --dry-run develop
 ```
 
 Preview what would happen without making any changes.
@@ -148,18 +148,18 @@ Preview what would happen without making any changes.
 | `--depth n` | | Repo search depth (default: `4`) |
 | `--exclude p` | | Exclude repos whose name contains pattern `p` |
 | `--filter p` | | Only include repos whose name contains pattern `p` |
-| `--settings` | | Open portal settings (use with `gitplex portal`) |
+| `--settings` | | Open portal settings (use with `gitmux portal`) |
 | `--version` | `-v` | Show version number |
 | `--help` | `-h` | Show help |
 
-## Requirements for `gitplex mr` and `gitplex portal`
+## Requirements for `gitmux mr` and `gitmux portal`
 
 - [`glab`](https://gitlab.com/gitlab-org/cli#installation) installed and on `$PATH`
 - `glab auth login` completed for your GitLab instance
 
 ## Configuration
 
-`gitplex` reads optional settings from `~/.config/gitplex/gitplex.json`.
+`gitmux` reads optional settings from `~/.config/gitmux/gitmux.json`.
 
 Example:
 

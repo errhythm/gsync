@@ -408,7 +408,7 @@ async function cmdMrSettings(config) {
 export async function cmdSettings(repos) {
   console.log(
     boxen(
-      chalk.bold(p.white("gitplex Settings")) + "\n" +
+      chalk.bold(p.white("gitmux Settings")) + "\n" +
       p.muted("Configure portal, switch & merge request defaults"),
       {
         padding:        { top: 0, bottom: 0, left: 2, right: 2 },

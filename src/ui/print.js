@@ -6,7 +6,7 @@ import { p } from "./theme.js";
 import { VERSION } from "../constants.js";
 
 export function printLogo() {
-  const art = figlet.textSync("gitplex", { font: "ANSI Shadow" });
+  const art = figlet.textSync("gitmux", { font: "ANSI Shadow" });
   console.log();
   console.log(chalk.white(art));
   console.log(
@@ -38,7 +38,7 @@ export function printAbout() {
     // About
     "  " + chalk.bold(p.white("ABOUT")),
     gap,
-    "  " + p.muted("gitplex is a multi-repo Git workflow CLI."),
+    "  " + p.muted("gitmux is a multi-repo Git workflow CLI."),
     "  " + p.muted("Run it from any directory to operate across all git"),
     "  " + p.muted("repositories found within the configured search depth."),
     gap,
@@ -58,13 +58,13 @@ export function printAbout() {
     // Commands
     "  " + chalk.bold(p.white("COMMANDS")),
     gap,
-    `  ${p.cyan("gitplex <branch>")}    ${p.muted("Switch branch across all repos")}`,
-    `  ${p.cyan("gitplex status")}      ${p.muted("Show branch & dirty state for all repos")}`,
-    `  ${p.cyan("gitplex fetch")}       ${p.muted("Fetch all remotes in parallel")}`,
-    `  ${p.cyan("gitplex mr")}          ${p.muted("Create merge requests via glab")}`,
-    `  ${p.cyan("gitplex portal")}      ${p.muted("GitLab development portal")}`,
-    `  ${p.cyan("gitplex settings")}    ${p.muted("Configure portal & workflow defaults")}`,
-    `  ${p.cyan("gitplex about")}       ${p.muted("This page")}`,
+    `  ${p.cyan("gitmux <branch>")}    ${p.muted("Switch branch across all repos")}`,
+    `  ${p.cyan("gitmux status")}      ${p.muted("Show branch & dirty state for all repos")}`,
+    `  ${p.cyan("gitmux fetch")}       ${p.muted("Fetch all remotes in parallel")}`,
+    `  ${p.cyan("gitmux mr")}          ${p.muted("Create merge requests via glab")}`,
+    `  ${p.cyan("gitmux portal")}      ${p.muted("GitLab development portal")}`,
+    `  ${p.cyan("gitmux settings")}    ${p.muted("Configure portal & workflow defaults")}`,
+    `  ${p.cyan("gitmux about")}       ${p.muted("This page")}`,
     gap,
     hr,
     gap,
@@ -89,13 +89,13 @@ export function printHelp() {
     boxen(
       [
         chalk.bold(p.white("USAGE")),
-        `  ${p.cyan("gitplex")} ${p.muted("[branch] [options]")}`,
-        `  ${p.cyan("gitplex status")}`,
-        `  ${p.cyan("gitplex fetch")}`,
-        `  ${p.cyan("gitplex mr     [options]")}`,
-        `  ${p.cyan("gitplex portal [options]")}`,
-        `  ${p.cyan("gitplex settings")}`,
-        `  ${p.cyan("gitplex about")}`,
+        `  ${p.cyan("gitmux")} ${p.muted("[branch] [options]")}`,
+        `  ${p.cyan("gitmux status")}`,
+        `  ${p.cyan("gitmux fetch")}`,
+        `  ${p.cyan("gitmux mr     [options]")}`,
+        `  ${p.cyan("gitmux portal [options]")}`,
+        `  ${p.cyan("gitmux settings")}`,
+        `  ${p.cyan("gitmux about")}`,
         "",
         hr,
         "",
@@ -150,19 +150,19 @@ export function printHelp() {
         hr,
         "",
         chalk.bold(p.white("EXAMPLES")),
-        `  ${p.muted("$")} ${p.cyan("gitplex develop")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex main --pull")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex feature/auth --stash --pull")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex feat --fuzzy")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex main --create")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex --dry-run develop")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex --exclude legacy develop")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex status")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex fetch")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex mr --target develop --title \"Fix auth\" --labels \"bug\" --yes")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex portal --epic 42 --checkout --yes")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex portal --epic 42 --create-mr --target develop --yes")}`,
-        `  ${p.muted("$")} ${p.cyan("gitplex portal --epic 42 --create-issue --issue-project group/repo --issue-title \"Task\" --yes")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux develop")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux main --pull")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux feature/auth --stash --pull")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux feat --fuzzy")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux main --create")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux --dry-run develop")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux --exclude legacy develop")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux status")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux fetch")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux mr --target develop --title \"Fix auth\" --labels \"bug\" --yes")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux portal --epic 42 --checkout --yes")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux portal --epic 42 --create-mr --target develop --yes")}`,
+        `  ${p.muted("$")} ${p.cyan("gitmux portal --epic 42 --create-issue --issue-project group/repo --issue-title \"Task\" --yes")}`,
       ].join("\n"),
       {
         padding: { top: 1, bottom: 1, left: 3, right: 3 },

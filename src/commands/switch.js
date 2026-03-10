@@ -124,7 +124,7 @@ export async function cmdSwitch(repos, {
             const { dirty } = autoStash ? await getRepoStatus(repo) : { dirty: false };
             if (dirty) {
               try {
-                await execAsync("git stash push --include-untracked -m 'gitplex auto-stash'", { cwd: repo });
+                await execAsync("git stash push --include-untracked -m 'gitmux auto-stash'", { cwd: repo });
                 stashed = true;
                 stats.stashed++;
               } catch {}

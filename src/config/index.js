@@ -2,7 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join, dirname } from "path";
 
-export const CONFIG_PATH = join(homedir(), ".config", "gitplex", "gitplex.json");
+export const CONFIG_PATH = join(homedir(), ".config", "gitmux", "gitmux.json");
 
 export function loadConfig() {
   try {
@@ -17,6 +17,6 @@ export function saveConfig(config) {
     mkdirSync(dirname(CONFIG_PATH), { recursive: true });
     writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", "utf8");
   } catch (e) {
-    process.stderr.write(`gitplex: warning: could not save config: ${e.message}\n`);
+    process.stderr.write(`gitmux: warning: could not save config: ${e.message}\n`);
   }
 }
