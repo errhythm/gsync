@@ -41,7 +41,7 @@ Made by E.R.Rhythm.
 npm install -g @errhythm/gitmux
 ```
 
-*(Requires Node.js 18+)*
+*(Requires Node.js 22.13+)*
 
 Both `gitmux` and the shorter alias `gmux` are available after install.
 
