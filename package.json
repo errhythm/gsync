@@ -1,6 +1,6 @@
 {
   "name": "@errhythm/gitmux",
-  "version": "1.6.2",
+  "version": "1.6.3",
   "description": "Multi-repo Git & GitLab workflow CLI — switch branches, manage epics & issues, create MRs, all from the terminal",
   "type": "module",
   "bin": {
