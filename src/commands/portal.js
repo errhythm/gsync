@@ -1364,8 +1364,14 @@ async function cmdEpicCheckout(
   console.log();
   if (!confirmed) return;
 
-  // Phase 3 — execute git switch
+  // Phase 3 — fetch then switch
   for (const { localRepo, branchName } of checkouts) {
+    // Fetch the branch from origin first so it's available locally even if it
+    // was never checked out on this machine.
+    await execFileAsync("git", ["fetch", "origin", branchName], {
+      cwd: localRepo.repo,
+    }).catch(() => {}); // silence fetch errors — switch will surface the real problem
+
     try {
       await execFileAsync("git", ["switch", branchName], {
         cwd: localRepo.repo,
