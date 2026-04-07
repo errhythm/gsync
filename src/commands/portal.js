@@ -1086,130 +1086,6 @@ function cmdOpenAsWorkspace(epic, epicIssues, glabRepos) {
   }
 }
 
-// ── Open as Git Worktree ──────────────────────────────────────────────────────
-// For each issue in the epic that has a primary branch set, creates a git
-// worktree at .gitmux/worktrees/<epic-slug>/<repo-name>/ and then opens all
-// worktrees as a workspace in the detected editor.
-async function cmdOpenAsWorktree(epic, epicIssues, glabRepos) {
-  const cwd = process.cwd();
-  const primaryBranches = loadConfig().portal?.primaryBranches ?? {};
-
-  // Deduplicate by repo and pair each with its primary branch
-  const seen = new Set();
-  const candidates = [];
-  for (const issue of epicIssues) {
-    const ref = issue.references?.full ?? "";
-    if (!ref) continue;
-    const [projectPath] = ref.split("#");
-    const localRepo = findLocalRepo(glabRepos, projectPath);
-    if (!localRepo || seen.has(localRepo.repo)) continue;
-    seen.add(localRepo.repo);
-    const primary = primaryBranches[issueConfigKey(issue)] ?? null;
-    candidates.push({ issue, localRepo, primary });
-  }
-
-  const ready = candidates.filter((c) => c.primary);
-  const skipped = candidates.filter((c) => !c.primary);
-
-  if (ready.length === 0) {
-    console.log("  " + p.muted("No issues ready. Set primary branches first.\n"));
-    return;
-  }
-
-  if (skipped.length > 0) {
-    for (const c of skipped) {
-      console.log(
-        "  " + p.muted("○") + "  " + p.muted(c.localRepo.name.padEnd(20) + "no primary set"),
-      );
-    }
-    console.log();
-  }
-
-  const epicSlug = slugify(epic.title);
-  const worktreesBase = join(cwd, ".gitmux", "worktrees", epicSlug);
-  mkdirSync(worktreesBase, { recursive: true });
-
-  const worktreePaths = [];
-
-  for (const { localRepo, primary } of ready) {
-    const worktreePath = join(worktreesBase, localRepo.name);
-    process.stdout.write("  " + p.muted(`Preparing ${localRepo.name}…\r`));
-
-    try {
-      await execFileAsync("git", ["worktree", "add", worktreePath, primary], {
-        cwd: localRepo.repo,
-      });
-      process.stdout.write(" ".repeat(60) + "\r");
-      console.log(
-        "  " + p.green("✓") + "  " + chalk.bold(p.white(localRepo.name)) +
-        "  " + colorBranch(primary),
-      );
-    } catch (e) {
-      process.stdout.write(" ".repeat(60) + "\r");
-      const msg = (e.stderr ?? e.message ?? "").toLowerCase();
-      if (msg.includes("already exists") || msg.includes("already checked out") || msg.includes("is already")) {
-        // Worktree path exists — reuse it as-is
-        console.log(
-          "  " + p.teal("↺") + "  " + chalk.bold(p.white(localRepo.name)) +
-          "  " + colorBranch(primary) + "  " + p.muted("(existing)"),
-        );
-      } else {
-        console.log(
-          "  " + p.yellow("!") + "  " + p.white(localRepo.name) +
-          "  " + p.muted((e.stderr ?? e.message ?? "").slice(0, 70).trim()),
-        );
-        continue;
-      }
-    }
-
-    worktreePaths.push(worktreePath);
-  }
-
-  if (worktreePaths.length === 0) {
-    console.log("\n  " + p.muted("No worktrees were created."));
-    return;
-  }
-
-  console.log();
-
-  // Build and open a workspace file pointing at the worktree paths.
-  // terminal.integrated.cwd is the epic's worktree root so new terminals open
-  // there rather than inside one of the individual repo folders.
-  const workspace = {
-    folders: worktreePaths.map((wt) => ({ path: wt })),
-    settings: {
-      "terminal.integrated.cwd": worktreesBase,
-    },
-  };
-
-  const workspacesDir = join(cwd, ".gitmux", "workspaces");
-  mkdirSync(workspacesDir, { recursive: true });
-  const filePath = join(workspacesDir, `${epicSlug}-worktree.code-workspace`);
-  writeFileSync(filePath, JSON.stringify(workspace, null, 2) + "\n", "utf8");
-
-  const repoList = worktreePaths.map((wt) => p.teal(basename(wt))).join(p.muted(", "));
-  const editorCmd = detectEditorCmd();
-
-  if (editorCmd) {
-    const child = spawn(editorCmd, [filePath], {
-      shell: true,
-      detached: true,
-      stdio: "ignore",
-    });
-    child.unref();
-    console.log(
-      "  " + p.green("✓") + " " + p.white(`Opening worktrees in ${editorCmd}…`) + "\n" +
-      "  " + p.muted("file   ") + p.cyan(filePath.replace(cwd + "/", "")) + "\n" +
-      "  " + p.muted("repos  ") + repoList,
-    );
-  } else {
-    console.log(
-      "  " + p.yellow("!") + " " + p.white("No editor CLI found (cursor / code / windsurf)") + "\n" +
-      "  " + p.muted("file   ") + p.cyan(filePath.replace(cwd + "/", "")) + "\n" +
-      "  " + p.muted("repos  ") + repoList,
-    );
-  }
-}
 
 // ── Epic checkout ──────────────────────────────────────────────────────────────
 // Checks out the primary branch for each issue's local repo.
@@ -2056,17 +1932,6 @@ export async function cmdPortal(
                   },
                 ]
               : []),
-            ...(hasIssues && hasLocalHit
-              ? [
-                  {
-                    value: "worktree",
-                    name: p.white("⬢  Open as git worktree"),
-                    description: p.muted(
-                      "checkout each primary branch as a worktree and open in editor",
-                    ),
-                  },
-                ]
-              : []),
             {
               value: "create",
               name: p.green("+ Create new issue"),
@@ -2109,13 +1974,6 @@ export async function cmdPortal(
         // Open epic repos as a VS Code workspace
         if (action === "workspace") {
           cmdOpenAsWorkspace(epic, epicIssues, glabRepos);
-          console.log();
-          continue issueLoop;
-        }
-
-        // Checkout each primary branch as a git worktree and open in editor
-        if (action === "worktree") {
-          await cmdOpenAsWorktree(epic, epicIssues, glabRepos);
           console.log();
           continue issueLoop;
         }
