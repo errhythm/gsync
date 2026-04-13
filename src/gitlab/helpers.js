@@ -35,6 +35,21 @@ export function getDefaultBranch(repoPath) {
   }
 }
 
+/**
+ * Fetches the project's default branch from the GitLab API.
+ * Falls back to getDefaultBranch() (local git ref) if the API call fails.
+ */
+export async function fetchProjectDefaultBranch(projectPath, glabApiFn, fallbackRepoPath = null) {
+  try {
+    const enc = encodeURIComponent(projectPath);
+    const project = await glabApiFn(`projects/${enc}`);
+    if (project?.default_branch) return project.default_branch;
+  } catch {
+    // fall through to local git fallback
+  }
+  return fallbackRepoPath ? getDefaultBranch(fallbackRepoPath) : "main";
+}
+
 export function extractGroupFromUrl(url) {
   const path = url
     .replace(/^git@[^:]+:/, "")

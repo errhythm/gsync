@@ -19,6 +19,7 @@ import {
   detectGroupFromRepos,
   getProjectPath,
   getDefaultBranch,
+  fetchProjectDefaultBranch,
   slugify,
 } from "../gitlab/helpers.js";
 import { loadConfig, saveConfig } from "../config/index.js";
@@ -349,9 +350,11 @@ async function cmdIssueView(issue, glabRepos = [], portalConfig = {}) {
   // Create a new branch for this issue
   if (issueAction === "createBranch") {
     const localRepo = findLocalRepo(glabRepos, projectPath);
-    const projectDefaultBranch = localRepo
-      ? getDefaultBranch(localRepo.repo)
-      : null;
+    const projectDefaultBranch = await fetchProjectDefaultBranch(
+      projectPath,
+      glabApi,
+      localRepo?.repo ?? null,
+    );
     const defaultBranchName = `feature/${localIid}-${slugify(issue.title)}`;
 
     const { branchName } = await enquirer.prompt({
@@ -2294,7 +2297,11 @@ export async function cmdPortal(
             validate: (v) => v.trim() !== "" || "Branch name cannot be empty",
           });
 
-          const projectDefaultBranch = getDefaultBranch(projectChoice.repo);
+          const projectDefaultBranch = await fetchProjectDefaultBranch(
+            projectChoice.projectPath,
+            glabApi,
+            projectChoice.repo,
+          );
           const { baseBranchName } = await enquirer.prompt({
             type: "input",
             name: "baseBranchName",
